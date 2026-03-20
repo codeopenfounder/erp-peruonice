@@ -1,0 +1,78 @@
+"use client";
+
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
+import {
+  getPromotions,
+  getPromotionById,
+  getPromotionKPIs,
+  createPromotion,
+  updatePromotion,
+  deletePromotion,
+} from "@/actions/promotions";
+import type { PromotionFilters } from "@/types/promotion";
+
+// ---------------------------------------------------------------------------
+// Queries
+// ---------------------------------------------------------------------------
+
+export function usePromotions(filters: PromotionFilters) {
+  return useQuery({
+    queryKey: ["promotions", filters],
+    queryFn: () => getPromotions(filters),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function usePromotion(id: string) {
+  return useQuery({
+    queryKey: ["promotion", id],
+    queryFn: () => getPromotionById(id),
+    enabled: !!id,
+  });
+}
+
+export function usePromotionKPIs() {
+  return useQuery({
+    queryKey: ["promotion-kpis"],
+    queryFn: () => getPromotionKPIs(),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Mutations
+// ---------------------------------------------------------------------------
+
+export function useCreatePromotion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => createPromotion(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+      queryClient.invalidateQueries({ queryKey: ["promotion-kpis"] });
+    },
+  });
+}
+
+export function useUpdatePromotion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: Record<string, unknown> }) =>
+      updatePromotion(id, data),
+    onSuccess: (_result, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+      queryClient.invalidateQueries({ queryKey: ["promotion", id] });
+      queryClient.invalidateQueries({ queryKey: ["promotion-kpis"] });
+    },
+  });
+}
+
+export function useDeletePromotion() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deletePromotion(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["promotions"] });
+      queryClient.invalidateQueries({ queryKey: ["promotion-kpis"] });
+    },
+  });
+}

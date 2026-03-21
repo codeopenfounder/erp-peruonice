@@ -8,6 +8,7 @@ import {
   getReporteControlCaja,
   getReporteRendimientoPromos,
   getReporteInventarioValorizado,
+  getReporteTraficoVsEntradas,
 } from "@/actions/reportes"
 import type { ReportFilters } from "@/types/reportes"
 
@@ -60,6 +61,15 @@ export function useReporteInventarioValorizado(filters: ReportFilters, enabled: 
   return useQuery({
     queryKey: ["reporte-inventario-valorizado", filters],
     queryFn: () => getReporteInventarioValorizado(filters),
+    enabled,
+    placeholderData: keepPreviousData,
+  })
+}
+
+export function useReporteTraficoVsEntradas(filters: ReportFilters, enabled: boolean) {
+  return useQuery({
+    queryKey: ["reporte-trafico-vs-entradas", filters],
+    queryFn: () => getReporteTraficoVsEntradas(filters),
     enabled,
     placeholderData: keepPreviousData,
   })

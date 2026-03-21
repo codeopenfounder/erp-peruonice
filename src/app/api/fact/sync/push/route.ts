@@ -50,7 +50,6 @@ interface PushInvoice {
   payment_method: string;
   currency?: string;
   exchange_rate?: number;
-  payment_terms?: string | null;
   cash_register_id: string | null;
   opening_id: string | null;
   reference_invoice_id: string | null;
@@ -281,7 +280,20 @@ export async function POST(request: Request) {
             cost_price: costMap.get(item.product_id || item.supply_id || "") ?? 0,
           }));
 
-          await adminClient.from("invoice_items").insert(itemRows);
+          const { error: itemsError } = await adminClient.from("invoice_items").insert(itemRows);
+          if (itemsError) {
+            console.error("[sync-push] invoice_items insert failed:", itemsError.message);
+            // Rollback: delete orphan invoice so POI Fact can retry
+            await adminClient.from("invoices").delete().eq("id", inserted.id);
+            results.push({
+              local_id: inv.local_id,
+              server_id: null,
+              correlative,
+              success: false,
+              error: `Items insert failed: ${itemsError.message}`,
+            });
+            continue;
+          }
         }
 
         // Create cash register movement for this invoice
@@ -289,16 +301,17 @@ export async function POST(request: Request) {
           const isNc = inv.document_type === "nota_credito";
           const isNd = inv.document_type === "nota_debito";
           const ncReturn = isNc && ["01", "06", "07"].includes(inv.reference_reason || "");
-          const shouldCreate = (!isNc && !isNd) || ncReturn || isNd;
+          const ncPriceAdjust = isNc && ["04", "05", "09"].includes(inv.reference_reason || "");
+          const shouldCreate = (!isNc && !isNd) || ncReturn || ncPriceAdjust || isNd;
 
           if (shouldCreate) {
             await adminClient.from("cash_register_movements").insert({
               tenant_id: ctx.tenantId,
               opening_id: inv.opening_id,
-              type: ncReturn ? "refund" : "sale",
+              type: (ncReturn || ncPriceAdjust) ? "refund" : "sale",
               amount: inv.total,
               description: isNc
-                ? "Devolucion NC"
+                ? (ncReturn ? "Devolucion NC" : "Ajuste precio NC")
                 : isNd
                   ? "Ajuste ND"
                   : `Venta ${inv.document_type === "factura" ? "Factura" : "Boleta"}`,
@@ -440,7 +453,16 @@ export async function POST(request: Request) {
 
         if (shouldRecordMovements) {
           for (const item of inv.items) {
-            const reason = item.is_cortesia ? `Cortesia: ${item.cortesia_reason || 'Sin motivo'}` : null;
+            const CORTESIA_LABELS: Record<string, string> = {
+              cliente_insatisfecho: "Cliente insatisfecho",
+              falla_producto: "Falla de producto",
+              promocion: "Promocion",
+              otro: "Otro",
+            };
+            const reasonLabel = item.cortesia_reason
+              ? (CORTESIA_LABELS[item.cortesia_reason] || item.cortesia_reason)
+              : "Sin motivo";
+            const reason = item.is_cortesia ? `Cortesia: ${reasonLabel}` : null;
             const ncNotes = ncStockReturn ? `NC: ${inv.reference_reason === "01" ? "Anulacion" : inv.reference_reason === "06" ? "Devolucion total" : "Devolucion por item"}` : null;
 
             // Services → skip (no stock)
@@ -657,6 +679,22 @@ export async function POST(request: Request) {
 
     for (const mov of movements) {
       try {
+        // Skip invoice-linked movements — already created during invoice processing
+        if (mov.invoice_id) {
+          const { data: existing } = await adminClient
+            .from("cash_register_movements")
+            .select("id")
+            .eq("invoice_id", mov.invoice_id)
+            .maybeSingle();
+
+          if (existing) {
+            movementResults.push({ local_id: mov.local_id, server_id: existing.id, success: true });
+          } else {
+            movementResults.push({ local_id: mov.local_id, server_id: null, success: false, error: "Invoice movement not found" });
+          }
+          continue;
+        }
+
         const { data: inserted, error: movError } = await adminClient
           .from("cash_register_movements")
           .insert({
@@ -665,7 +703,7 @@ export async function POST(request: Request) {
             type: mov.type,
             amount: mov.amount,
             description: mov.description,
-            invoice_id: mov.invoice_id || null,
+            invoice_id: null,
             payment_method: mov.payment_method,
             created_by: ctx.userId,
             created_at: mov.created_at,
@@ -803,6 +841,7 @@ export async function POST(request: Request) {
     revalidatePath("/inventario/productos");
     revalidatePath("/inventario/movimientos");
     revalidatePath("/ventas/comprobantes");
+    revalidatePath("/finanzas/movimientos");
 
     return NextResponse.json({
       success: true,

@@ -38,22 +38,23 @@ export async function getSalesKPIs(date?: string): Promise<SalesKPIs> {
   nextDay.setDate(nextDay.getDate() + 1);
   const dayEndUtc = `${nextDay.toISOString().split("T")[0]}T05:00:00Z`;
 
-  // Fetch only facturas and boletas, not voided
+  // Fetch facturas, boletas, and notas de credito (to subtract refunds)
   const { data: invoices } = await supabase
     .from("invoices")
-    .select("id, total, payment_method, created_at")
+    .select("id, document_type, total, payment_method, created_at")
     .eq("tenant_id", tenantId)
-    .in("document_type", ["factura", "boleta"])
+    .in("document_type", ["factura", "boleta", "nota_credito"])
     .neq("status", "voided")
     .gte("created_at", dayStartUtc)
     .lt("created_at", dayEndUtc);
 
   const rows = invoices || [];
 
-  // Batch-fetch item counts for all invoices
+  // Batch-fetch item counts only for sales (not notas de credito)
   let itemsSold = 0;
-  if (rows.length > 0) {
-    const invoiceIds = rows.map((inv) => inv.id);
+  const saleRows = rows.filter((inv) => inv.document_type !== "nota_credito");
+  if (saleRows.length > 0) {
+    const invoiceIds = saleRows.map((inv) => inv.id);
     const { data: items } = await supabase
       .from("invoice_items")
       .select("invoice_id, quantity")
@@ -70,6 +71,13 @@ export async function getSalesKPIs(date?: string): Promise<SalesKPIs> {
 
   rows.forEach((inv) => {
     const amt = Number(inv.total);
+
+    // Notas de credito subtract from total but don't count as transactions
+    if (inv.document_type === "nota_credito") {
+      totalSales -= amt;
+      return;
+    }
+
     totalSales += amt;
     transactionCount += 1;
 

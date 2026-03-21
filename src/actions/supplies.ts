@@ -463,12 +463,11 @@ export async function deleteSupply(id: string) {
     .single();
   if (!supply) return { success: false as const, error: "Insumo no encontrado" };
 
-  // Delete M2M assignments first
-  await supabase.from("supply_category_assignments").delete().eq("supply_id", id);
-  await supabase.from("supply_tag_assignments").delete().eq("supply_id", id);
-
-  // Delete the supply
-  const { error } = await supabase.from("supplies").delete().eq("id", id);
+  // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
+  const { error } = await supabase
+    .from("supplies")
+    .update({ is_active: false })
+    .eq("id", id);
   if (error) return { success: false as const, error: error.message };
 
   void notifyModuleAction({

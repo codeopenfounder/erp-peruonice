@@ -10,6 +10,7 @@ import type {
   ControlCajaRow,
   RendimientoPromosRow,
   InventarioValorizadoRow,
+  TraficoVsEntradasRow,
 } from "@/types/reportes"
 
 // ---------------------------------------------------------------------------
@@ -176,4 +177,28 @@ export async function getReporteInventarioValorizado(
 
   if (error) throw new Error(`Error generando reporte: ${error.message}`)
   return (data ?? []) as InventarioValorizadoRow[]
+}
+
+// ---------------------------------------------------------------------------
+// Report 2: Trafico de Asistentes vs Entradas Vendidas
+// ---------------------------------------------------------------------------
+
+export async function getReporteTraficoVsEntradas(
+  filters: ReportFilters
+): Promise<TraficoVsEntradasRow[]> {
+  const { tenantId } = await requireReportAccess([
+    "reservas.reservas",
+    "ventas.comprobantes",
+  ])
+
+  const admin = createAdminClient()
+  const { data, error } = await admin.rpc("fn_report_trafico_vs_entradas", {
+    p_tenant_id: tenantId,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+    p_branch_id: filters.branch_id || null,
+  })
+
+  if (error) throw new Error(`Error generando reporte: ${error.message}`)
+  return (data ?? []) as TraficoVsEntradasRow[]
 }

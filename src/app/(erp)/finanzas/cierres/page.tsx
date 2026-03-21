@@ -3,7 +3,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { type ColumnDef } from "@tanstack/react-table";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -81,15 +80,6 @@ const columns: ColumnDef<ClosingHistoryItem>[] = [
     ),
   },
   {
-    accessorKey: "branch_name",
-    header: "Sede",
-    cell: ({ row }) => (
-      <span className="text-sm">
-        {row.original.branch_name || <span className="text-muted-foreground">&mdash;</span>}
-      </span>
-    ),
-  },
-  {
     accessorKey: "opened_by_name",
     header: "Cajero",
     cell: ({ row }) => (
@@ -99,11 +89,29 @@ const columns: ColumnDef<ClosingHistoryItem>[] = [
     ),
   },
   {
-    accessorKey: "opening_amount",
-    header: () => <div className="text-right">Apertura</div>,
+    accessorKey: "closed_by_name",
+    header: "Resp. Cierre",
+    cell: ({ row }) => (
+      <span className="text-sm">
+        {row.original.closed_by_name || <span className="text-muted-foreground">&mdash;</span>}
+      </span>
+    ),
+  },
+  {
+    accessorKey: "deposit_amount",
+    header: () => <div className="text-right">Deposito</div>,
     cell: ({ row }) => (
       <div className="text-right font-mono text-sm tabular-nums">
-        {formatCurrency(row.original.opening_amount)}
+        {formatCurrency(row.original.deposit_amount)}
+      </div>
+    ),
+  },
+  {
+    accessorKey: "opening_accumulated",
+    header: () => <div className="text-right">Acum. Apertura</div>,
+    cell: ({ row }) => (
+      <div className="text-right font-mono text-sm tabular-nums text-muted-foreground">
+        {formatCurrency(row.original.opening_accumulated)}
       </div>
     ),
   },
@@ -140,10 +148,19 @@ const columns: ColumnDef<ClosingHistoryItem>[] = [
     },
   },
   {
+    accessorKey: "closing_accumulated",
+    header: () => <div className="text-right">Acum. Cierre</div>,
+    cell: ({ row }) => (
+      <div className="text-right font-mono text-sm tabular-nums font-medium">
+        {formatCurrency(row.original.closing_accumulated)}
+      </div>
+    ),
+  },
+  {
     accessorKey: "notes",
     header: "Notas",
     cell: ({ row }) => (
-      <span className="max-w-[200px] truncate text-sm text-muted-foreground block">
+      <span className="max-w-[150px] truncate text-sm text-muted-foreground block">
         {row.original.notes || <span className="text-muted-foreground">&mdash;</span>}
       </span>
     ),

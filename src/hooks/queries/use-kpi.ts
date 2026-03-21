@@ -8,6 +8,8 @@ import {
   getKpiOperationalLeaks,
   getKpiInventoryHealth,
   getKpiDailyTrend,
+  getKpiAttendance,
+  getKpiHourlyAttendance,
 } from "@/actions/kpi";
 import type { DashboardFilters } from "@/types/kpi";
 
@@ -55,6 +57,22 @@ export function useDailyTrend(filters: DashboardFilters) {
   return useQuery({
     queryKey: ["kpi-trend", filters],
     queryFn: () => getKpiDailyTrend(filters),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useAttendance(filters: DashboardFilters) {
+  return useQuery({
+    queryKey: ["kpi-attendance", filters],
+    queryFn: () => getKpiAttendance(filters),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useHourlyAttendance(filters: DashboardFilters) {
+  return useQuery({
+    queryKey: ["kpi-hourly-attendance", filters],
+    queryFn: () => getKpiHourlyAttendance(filters),
     placeholderData: keepPreviousData,
   });
 }

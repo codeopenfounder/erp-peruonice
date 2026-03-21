@@ -157,15 +157,11 @@ export async function deleteCategory(id: string) {
     .single();
   if (!category) return { success: false as const, error: "Categoria no encontrada" };
 
-  // Delete M2M assignments
-  await supabase.from("product_category_assignments").delete().eq("category_id", id);
-  await supabase.from("supply_category_assignments").delete().eq("category_id", id);
-
-  // Delete tags belonging to this category
-  await supabase.from("product_tags").delete().eq("category_id", id);
-
-  // Delete the category
-  const { error } = await supabase.from("product_categories").delete().eq("id", id);
+  // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
+  const { error } = await supabase
+    .from("product_categories")
+    .update({ is_active: false })
+    .eq("id", id);
   if (error) return { success: false as const, error: error.message };
 
   void notifyModuleAction({
@@ -254,12 +250,11 @@ export async function deleteTag(id: string) {
     .single();
   if (!tag) return { success: false as const, error: "Etiqueta no encontrada" };
 
-  // Delete M2M assignments
-  await supabase.from("product_tag_assignments").delete().eq("tag_id", id);
-  await supabase.from("supply_tag_assignments").delete().eq("tag_id", id);
-
-  // Delete the tag
-  const { error } = await supabase.from("product_tags").delete().eq("id", id);
+  // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
+  const { error } = await supabase
+    .from("product_tags")
+    .update({ is_active: false })
+    .eq("id", id);
   if (error) return { success: false as const, error: error.message };
 
   void notifyModuleAction({

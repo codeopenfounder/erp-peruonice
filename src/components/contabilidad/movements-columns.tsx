@@ -121,17 +121,6 @@ export function getMovementsColumns(): ColumnDef<GastosMovementListItem>[] {
       },
     },
     {
-      accessorKey: "receipt_number",
-      header: "Comprobante",
-      cell: ({ row }) => (
-        <span className="font-mono text-xs text-muted-foreground">
-          {row.original.receipt_number || (
-            <span className="text-muted-foreground">&mdash;</span>
-          )}
-        </span>
-      ),
-    },
-    {
       accessorKey: "branch_name",
       header: "Sede",
       cell: ({ row }) => (

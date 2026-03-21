@@ -48,6 +48,7 @@ export function HourlyChart() {
   const { filters } = useDashboardFilters();
   const { data, isLoading, isFetching } = useHourlySales(filters);
 
+  const isRange = filters.date_from !== filters.date_to;
   const chartData = (data || []).map((point) => ({
     ...point,
     label: `${point.hour_of_day}h`,
@@ -55,7 +56,7 @@ export function HourlyChart() {
 
   return (
     <ChartCard
-      title="Ventas por Hora"
+      title={isRange ? "Promedio de Ventas por Hora" : "Ventas por Hora"}
       isLoading={isLoading}
       isFetching={isFetching}
       isEmpty={!chartData.length}

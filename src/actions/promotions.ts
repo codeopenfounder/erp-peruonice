@@ -497,14 +497,11 @@ export async function deletePromotion(id: string) {
       .single();
     if (!promo) return { success: false as const, error: "Promocion no encontrada" };
 
-    // Delete M2M filters
-    await supabase.from("promotion_category_filters").delete().eq("promotion_id", id);
-    await supabase.from("promotion_tag_filters").delete().eq("promotion_id", id);
-    await supabase.from("promotion_branch_filters").delete().eq("promotion_id", id);
-    await supabase.from("promotion_combo_items").delete().eq("promotion_id", id);
-
-    // Delete the promotion
-    const { error } = await supabase.from("promotions").delete().eq("id", id);
+    // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
+    const { error } = await supabase
+      .from("promotions")
+      .update({ is_active: false })
+      .eq("id", id);
     if (error) return { success: false as const, error: error.message };
 
     void notifyModuleAction({

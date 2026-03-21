@@ -60,7 +60,10 @@ export interface ClosingHistoryItem {
   opened_by_name: string | null;
   closed_by_name: string | null;
   opening_amount: number;
+  deposit_amount: number;
+  opening_accumulated: number;
   closing_amount: number | null;
+  closing_accumulated: number | null;
   expected_amount: number | null;
   difference: number | null;
   notes: string | null;

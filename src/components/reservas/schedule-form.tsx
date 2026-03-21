@@ -26,7 +26,7 @@ import {
 } from "@/lib/validators/reservation";
 import { useProducts } from "@/hooks/queries/use-products";
 import { useBranchesForSelect } from "@/hooks/queries/use-branches";
-import { useCreateSchedule, useUpdateSchedule } from "@/hooks/queries/use-schedules";
+import { useCreateSchedule, useUpdateSchedule, useSchedules } from "@/hooks/queries/use-schedules";
 import type { ScheduleWithRanges } from "@/types/reservation";
 import { cn } from "@/lib/utils";
 
@@ -82,12 +82,20 @@ export function ScheduleForm({ schedule }: ScheduleFormProps) {
 
   const { data: productsData } = useProducts({ type: "service", page: 1, page_size: 100 });
   const { data: branchesData } = useBranchesForSelect();
+  const { data: existingSchedules } = useSchedules({ page: 1, page_size: 200 });
 
   const createMutation = useCreateSchedule();
   const updateMutation = useUpdateSchedule();
 
   const services = (productsData as { data?: { id: string; name: string; branch_id: string | null }[] } | undefined)?.data ?? [];
   const branches = Array.isArray(branchesData) ? branchesData : [];
+
+  // Product IDs that already have an active schedule (prevent duplicate creation)
+  const usedProductIds = new Set<string>(
+    ((existingSchedules as { data?: { product_id: string; is_active: boolean }[] } | undefined)?.data ?? [])
+      .filter((s) => s.is_active)
+      .map((s) => s.product_id)
+  );
 
   const schema = isEditing ? updateScheduleSchema : createScheduleSchema;
 
@@ -206,11 +214,17 @@ export function ScheduleForm({ schedule }: ScheduleFormProps) {
                 <SelectValue placeholder="Seleccione un servicio" />
               </SelectTrigger>
               <SelectContent>
-                {services.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.name}
-                  </SelectItem>
-                ))}
+                {services.map((s) => {
+                  const hasSchedule = !isEditing && usedProductIds.has(s.id);
+                  return (
+                    <SelectItem key={s.id} value={s.id} disabled={hasSchedule}>
+                      {s.name}
+                      {hasSchedule && (
+                        <span className="ml-2 text-xs text-muted-foreground">(Ya tiene horario)</span>
+                      )}
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
             {errors.product_id && (

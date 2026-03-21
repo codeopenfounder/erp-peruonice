@@ -24,7 +24,7 @@ export function AnulacionesCard({ data, isLoading }: AnulacionesCardProps) {
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
           <XCircle className="h-4 w-4 text-destructive" />
         </div>
-        <CardTitle className="text-sm font-medium">Anulaciones</CardTitle>
+        <CardTitle className="text-sm font-medium">Anulaciones y Devoluciones</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {isLoading ? (
@@ -43,7 +43,7 @@ export function AnulacionesCard({ data, isLoading }: AnulacionesCardProps) {
                 {data?.voided_count ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">
-                transacciones anuladas
+                anulaciones y notas de credito
               </p>
             </div>
 

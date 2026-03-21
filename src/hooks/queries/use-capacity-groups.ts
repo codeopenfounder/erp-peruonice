@@ -43,7 +43,8 @@ export function useAvailableSchedules(branchId: string, excludeGroupId?: string)
   return useQuery({
     queryKey: ["available-schedules-for-group", branchId, excludeGroupId],
     queryFn: () => getAvailableSchedulesForGroup(branchId, excludeGroupId),
-    enabled: !!branchId,
+    enabled: !!branchId && branchId.length > 0,
+    retry: false,
   });
 }
 

@@ -30,6 +30,7 @@ const BAR_COLORS = [
   "var(--chart-3)", // amber - Mermas
   "var(--chart-1)", // red - Perdidas
   "var(--chart-4)", // purple - Rotura
+  "var(--chart-5)", // blue - Consumo Staff
 ];
 
 export function MermasChart({ data, isLoading }: MermasChartProps) {
@@ -37,6 +38,7 @@ export function MermasChart({ data, isLoading }: MermasChartProps) {
     { category: "Mermas", value: data?.waste_value ?? 0 },
     { category: "Perdidas", value: data?.shrinkage_value ?? 0 },
     { category: "Rotura", value: data?.breakage_value ?? 0 },
+    { category: "Consumo Staff", value: data?.staff_consumption_value ?? 0 },
   ];
 
   const allZero = chartData.every((d) => d.value === 0);

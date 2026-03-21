@@ -27,11 +27,12 @@ export function useReservationsBySlot(
   productId: string,
   branchId: string,
   date: string,
-  slotStart: string
+  slotStart: string,
+  slotEnd?: string
 ) {
   return useQuery({
-    queryKey: ["reservations-slot", productId, branchId, date, slotStart],
-    queryFn: () => getReservationsBySlot(productId, branchId, date, slotStart),
+    queryKey: ["reservations-slot", productId, branchId, date, slotStart, slotEnd],
+    queryFn: () => getReservationsBySlot(productId, branchId, date, slotStart, slotEnd),
     enabled: !!productId && !!branchId && !!date && !!slotStart,
   });
 }

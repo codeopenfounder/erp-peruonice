@@ -37,7 +37,7 @@ import {
   useCancelReservation,
 } from "@/hooks/queries/use-reservations";
 import { useProducts } from "@/hooks/queries/use-products";
-import { useBranchesForSelect } from "@/hooks/queries/use-branches";
+import { useSchedulesByProduct } from "@/hooks/queries/use-schedules";
 import { usePermissions } from "@/hooks/use-permissions";
 import type { ReservationFilters } from "@/types/reservation";
 
@@ -81,12 +81,24 @@ export default function ReservasPage() {
   // --- Data hooks ---
   const { data: kpis, isLoading: isLoadingKPIs } = useReservationKPIs();
   const { data: productsData } = useProducts({ type: "service", page: 1, page_size: 100 });
-  const { data: branches } = useBranchesForSelect();
   const cancelMutation = useCancelReservation();
 
-  const services = Array.isArray(productsData)
-    ? productsData
-    : (productsData as { data?: { id: string; name: string }[] })?.data ?? [];
+  // Auto-resolve branchId from the selected service's schedule
+  const { data: serviceSchedules } = useSchedulesByProduct(selectedProductId ?? "");
+  useEffect(() => {
+    if (serviceSchedules && serviceSchedules.length > 0) {
+      setSelectedBranchId(serviceSchedules[0].branch_id);
+    } else if (!selectedProductId) {
+      setSelectedBranchId(null);
+    }
+  }, [serviceSchedules, selectedProductId]);
+
+  // Only show services that have a schedule (is_schedulable = true)
+  const services = (
+    Array.isArray(productsData)
+      ? productsData
+      : (productsData as { data?: { id: string; name: string; is_schedulable?: boolean }[] })?.data ?? []
+  ).filter((s) => (s as { is_schedulable?: boolean }).is_schedulable);
 
   // --- Month view date range data ---
   const monthStart = format(startOfMonth(selectedDate), "yyyy-MM-dd");
@@ -253,9 +265,13 @@ export default function ReservasPage() {
       <div className="flex flex-wrap items-center gap-3">
         <Select
           value={selectedProductId ?? "all"}
-          onValueChange={(v) => setSelectedProductId(v === "all" ? null : v)}
+          onValueChange={(v) => {
+            setSelectedProductId(v === "all" ? null : v);
+            // Branch is resolved server-side from the service's schedule
+            setSelectedBranchId(null);
+          }}
         >
-          <SelectTrigger className="w-[220px]">
+          <SelectTrigger className="w-[260px]">
             <SelectValue placeholder="Todos los servicios" />
           </SelectTrigger>
           <SelectContent>
@@ -263,23 +279,6 @@ export default function ReservasPage() {
             {services.map((s) => (
               <SelectItem key={s.id} value={s.id}>
                 {s.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-
-        <Select
-          value={selectedBranchId ?? "all"}
-          onValueChange={(v) => setSelectedBranchId(v === "all" ? null : v)}
-        >
-          <SelectTrigger className="w-[200px]">
-            <SelectValue placeholder="Todas las sedes" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">Todas las sedes</SelectItem>
-            {branches?.map((b) => (
-              <SelectItem key={b.id} value={b.id}>
-                {b.name}
               </SelectItem>
             ))}
           </SelectContent>

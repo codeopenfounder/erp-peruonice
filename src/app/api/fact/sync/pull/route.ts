@@ -178,12 +178,11 @@ export async function POST(request: Request) {
         capacityGroupsRes,
         capacityGroupMembersRes,
       ] = await Promise.all([
-        // Active products and services
+        // All products and services (including inactive for sync soft-deletes)
         adminClient
           .from("products")
           .select("id, sku, name, description, type, product_kind, unit_price, cost_price, currency, tax_type, igv_rate, stock_quantity, min_stock, unit_of_measure, barcode, branch_id, image_url, is_active, is_schedulable")
-          .eq("tenant_id", ctx.tenantId)
-          .eq("is_active", true),
+          .eq("tenant_id", ctx.tenantId),
 
         // Service schedules (active only)
         adminClient
@@ -192,19 +191,17 @@ export async function POST(request: Request) {
           .eq("tenant_id", ctx.tenantId)
           .eq("is_active", true),
 
-        // Product categories
+        // Product categories (including inactive for sync soft-deletes)
         adminClient
           .from("product_categories")
-          .select("id, name, parent_id, type, sort_order")
-          .eq("tenant_id", ctx.tenantId)
-          .eq("is_active", true),
+          .select("id, name, parent_id, type, sort_order, is_active")
+          .eq("tenant_id", ctx.tenantId),
 
-        // Product tags with assignments
+        // Product tags (including inactive for sync soft-deletes)
         adminClient
           .from("product_tags")
-          .select("id, category_id, name, color")
-          .eq("tenant_id", ctx.tenantId)
-          .eq("is_active", true),
+          .select("id, category_id, name, color, is_active")
+          .eq("tenant_id", ctx.tenantId),
 
         // Customers for invoicing
         adminClient
@@ -242,7 +239,7 @@ export async function POST(request: Request) {
           .eq("tenant_id", ctx.tenantId)
           .single(),
 
-        // Active promotions
+        // Promotions (including inactive for sync soft-deletes)
         adminClient
           .from("promotions")
           .select(`
@@ -255,8 +252,7 @@ export async function POST(request: Request) {
             promotion_tag_filters(tag_id),
             promotion_branch_filters(branch_id)
           `)
-          .eq("tenant_id", ctx.tenantId)
-          .eq("is_active", true),
+          .eq("tenant_id", ctx.tenantId),
 
         // Branches (sedes)
         adminClient
@@ -322,12 +318,11 @@ export async function POST(request: Request) {
         .from("promotion_combo_items")
         .select("promotion_id, product_id, quantity");
 
-      // Fetch supplies (for POS adicionales tab)
+      // Fetch supplies (including inactive for sync soft-deletes)
       const suppliesRes = await adminClient
         .from("supplies")
         .select("id, sku, name, description, unit_of_measure, stock_quantity, min_stock, cost_price, currency, image_url, barcode, available_in_pos, is_active")
-        .eq("tenant_id", ctx.tenantId)
-        .eq("is_active", true);
+        .eq("tenant_id", ctx.tenantId);
 
       // Fetch recipe items for composite products
       const compositeProductIds = (productsRes.data || [])
@@ -474,19 +469,17 @@ export async function POST(request: Request) {
             `)
             .eq("tenant_id", ctx.tenantId),
 
-          // Categories (always include, cheap — ensures POS has fresh taxonomy)
+          // Categories (always include, cheap — includes inactive for sync soft-deletes)
           adminClient
             .from("product_categories")
-            .select("id, name, parent_id, type, sort_order")
-            .eq("tenant_id", ctx.tenantId)
-            .eq("is_active", true),
+            .select("id, name, parent_id, type, sort_order, is_active")
+            .eq("tenant_id", ctx.tenantId),
 
-          // Tags (always include, cheap — needed for promo filter display)
+          // Tags (including inactive for sync soft-deletes)
           adminClient
             .from("product_tags")
-            .select("id, category_id, name, color")
-            .eq("tenant_id", ctx.tenantId)
-            .eq("is_active", true),
+            .select("id, category_id, name, color, is_active")
+            .eq("tenant_id", ctx.tenantId),
         ]);
 
       // Always fetch ALL tag/category assignments for the tenant (full replacement strategy)

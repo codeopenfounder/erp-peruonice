@@ -78,7 +78,6 @@ export interface Invoice {
   document_type: DocumentType;
   customer_id: string | null;
   issue_date: string;
-  due_date: string | null;
   currency: string;
   exchange_rate: number;
   op_gravada: number;
@@ -92,7 +91,6 @@ export interface Invoice {
   status: InvoiceStatus;
   sunat_response_code: string | null;
   sunat_response_desc: string | null;
-  sunat_ticket: string | null;
   xml_url: string | null;
   cdr_url: string | null;
   hash_code: string | null;

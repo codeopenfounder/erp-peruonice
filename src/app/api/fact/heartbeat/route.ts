@@ -14,7 +14,6 @@ export async function POST(request: Request) {
 
       if (body.opening_id && isClosing) {
         // Closing with opening_id — create-and-close in one step
-        // Handles case where opening was never synced (app restarted before heartbeat)
         await adminClient.from("cash_register_openings").upsert(
           {
             id: body.opening_id,
@@ -22,6 +21,7 @@ export async function POST(request: Request) {
             cash_register_id: body.cash_register_id,
             opened_by: ctx.userId,
             opening_amount: body.opening_amount ?? 0,
+            deposit_amount: body.deposit_amount ?? 0,
             status: "closed",
             closed_at: new Date().toISOString(),
             closed_by: body.closed_by || ctx.userId,
@@ -46,6 +46,7 @@ export async function POST(request: Request) {
             cash_register_id: body.cash_register_id,
             opened_by: ctx.userId,
             opening_amount: body.opening_amount ?? 0,
+            deposit_amount: body.deposit_amount ?? 0,
             status: "open",
           },
           { onConflict: "id" },

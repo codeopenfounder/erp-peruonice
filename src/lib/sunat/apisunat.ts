@@ -278,13 +278,23 @@ export async function submitToSunat(
 
     return result;
   } catch (error) {
+    // Persist error to invoice for visibility in ERP comprobantes
+    const errorMsg = error instanceof Error ? error.message : "Error de conexion";
+    try {
+      const errClient = createAdminClient();
+      await errClient.from("invoices").update({
+        sunat_response_desc: errorMsg,
+      }).eq("id", invoiceId);
+    } catch {
+      // Non-blocking
+    }
+
     return {
       success: false,
       documentId: null,
       status: "RECHAZADO",
       sunatResponseCode: "ERROR",
-      sunatResponseDesc:
-        error instanceof Error ? error.message : "Error de conexion",
+      sunatResponseDesc: errorMsg,
       hashCode: null,
       xmlUrl: null,
       cdrUrl: null,

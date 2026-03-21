@@ -40,6 +40,7 @@ const MOVEMENT_TYPE_OPTIONS: { value: InventoryMovementType; label: string }[] =
   { value: "income", label: "Ingreso" },
   { value: "outcome", label: "Egreso" },
   { value: "sale", label: "Venta" },
+  { value: "nc_return", label: "Devolucion NC" },
 ];
 
 export default function MovimientosPageWrapper() {

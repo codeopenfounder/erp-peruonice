@@ -18,6 +18,7 @@ import { RendimientoCatalogoReport } from "@/components/reportes/reports/rendimi
 import { ControlCajaReport } from "@/components/reportes/reports/control-caja-report"
 import { RendimientoPromosReport } from "@/components/reportes/reports/rendimiento-promos-report"
 import { InventarioValorizadoReport } from "@/components/reportes/reports/inventario-valorizado-report"
+import { TraficoVsEntradasReport } from "@/components/reportes/reports/trafico-vs-entradas-report"
 import type { ReportColor } from "@/types/reportes"
 import type { LucideIcon } from "lucide-react"
 
@@ -87,7 +88,6 @@ const REPORTS: ReportCard[] = [
     description: "Entradas vendidas vs QRs escaneados en pista para medir conversion.",
     area: "Operaciones",
     color: "slate",
-    comingSoon: true,
   },
 ]
 
@@ -140,6 +140,10 @@ export default function ReportesPage() {
       />
       <InventarioValorizadoReport
         open={activeReport === "inventario-valorizado"}
+        onOpenChange={(open) => !open && setActiveReport(null)}
+      />
+      <TraficoVsEntradasReport
+        open={activeReport === "trafico-asistentes"}
         onOpenChange={(open) => !open && setActiveReport(null)}
       />
     </div>

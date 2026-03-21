@@ -73,6 +73,9 @@ export async function getGastosKPIs(date?: string): Promise<GastosKPIs> {
       case "income":
         totalCashIn += amt;
         break;
+      case "refund":
+        if (!m.payment_method || m.payment_method === "cash") totalSales -= amt;
+        break;
       case "cash_out":
       case "expense":
         totalCashOut += amt;
@@ -500,7 +503,7 @@ export async function getClosingHistory(
 
   let query = supabase
     .from("cash_register_openings")
-    .select("id, cash_register_id, opened_by, closed_by, opening_amount, closing_amount, expected_amount, difference, opened_at, closed_at, notes", {
+    .select("id, cash_register_id, opened_by, closed_by, opening_amount, deposit_amount, closing_amount, expected_amount, difference, opened_at, closed_at, notes", {
       count: "exact",
     })
     .eq("tenant_id", tenantId)
@@ -568,6 +571,7 @@ export async function getClosingHistory(
 
   const data = openings.map((o) => {
     const reg = regMap[o.cash_register_id];
+    const deposit = Number(o.deposit_amount) || 0;
     return {
       id: o.id,
       cash_register_name: reg?.name ?? "Desconocida",
@@ -576,7 +580,10 @@ export async function getClosingHistory(
       opened_by_name: profileMap[o.opened_by] ?? null,
       closed_by_name: o.closed_by ? profileMap[o.closed_by] ?? null : null,
       opening_amount: o.opening_amount,
+      deposit_amount: deposit,
+      opening_accumulated: Number(o.opening_amount) - deposit,
       closing_amount: o.closing_amount,
+      closing_accumulated: o.closing_amount != null ? Number(o.closing_amount) : null,
       expected_amount: o.expected_amount,
       difference: o.difference,
       notes: o.notes,

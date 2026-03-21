@@ -106,6 +106,16 @@ export interface InventarioValorizadoRow {
   estado_stock: string
 }
 
+// --- Report 2: Trafico vs Entradas ---
+
+export interface TraficoVsEntradasRow {
+  fecha: string
+  hora: string
+  entradas_vendidas: number
+  qrs_escaneados: number
+  diferencia: number
+}
+
 // --- Report Metadata ---
 
 export type ReportColor = "primary" | "blue" | "green" | "amber" | "purple" | "slate"

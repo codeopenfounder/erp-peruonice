@@ -317,6 +317,7 @@ export default function ProductosPage() {
       <CategoryDialog
         open={categoryDialogOpen}
         onOpenChange={setCategoryDialogOpen}
+        defaultType="product"
       />
 
       <TagDialog

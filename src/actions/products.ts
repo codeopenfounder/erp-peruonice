@@ -63,7 +63,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
     .from("products")
     .select(
       `id, sku, name, type, product_kind, unit_price, cost_price, currency,
-       tax_type, igv_rate, stock_quantity, min_stock, unit_of_measure, barcode, image_url, is_active, branch_id`,
+       tax_type, igv_rate, stock_quantity, min_stock, unit_of_measure, barcode, image_url, is_active, branch_id, is_schedulable`,
       { count: "exact" }
     )
     .eq("tenant_id", tenantId)
@@ -572,13 +572,11 @@ export async function deleteProduct(id: string) {
   const isService = product.type === "service";
   const label = isService ? "servicio" : "producto";
 
-  // Delete M2M assignments first
-  await supabase.from("product_category_assignments").delete().eq("product_id", id);
-  await supabase.from("product_tag_assignments").delete().eq("product_id", id);
-  await supabase.from("recipe_items").delete().eq("product_id", id);
-
-  // Delete the product
-  const { error } = await supabase.from("products").delete().eq("id", id);
+  // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
+  const { error } = await supabase
+    .from("products")
+    .update({ is_active: false })
+    .eq("id", id);
   if (error) return { success: false as const, error: error.message };
 
   void notifyModuleAction({

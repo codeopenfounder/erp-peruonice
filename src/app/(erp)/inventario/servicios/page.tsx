@@ -283,7 +283,7 @@ export default function ServiciosPage() {
         </div>
       </div>
 
-      <CategoryDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen} />
+      <CategoryDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen} defaultType="service" />
       <TagDialog open={tagDialogOpen} onOpenChange={setTagDialogOpen} categoryId={tagCategoryId} />
 
       <ConfirmDialog

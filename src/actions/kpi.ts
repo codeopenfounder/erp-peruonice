@@ -9,6 +9,8 @@ import type {
   OperationalLeaks,
   InventoryHealth,
   DailyTrendPoint,
+  AttendanceSummary,
+  HourlyAttendancePoint,
 } from "@/types/kpi";
 
 async function getTenantId() {
@@ -103,7 +105,8 @@ export async function getKpiHourlySales(
   const { data } = await supabase.rpc("fn_kpi_hourly_sales", {
     p_tenant_id: tenantId,
     p_branch_id: filters.branch_id || null,
-    p_date: filters.date_from,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
   });
 
   return (data || []).map((row: Record<string, unknown>) => ({
@@ -219,6 +222,8 @@ export async function getKpiInventoryHealth(
     shrinkage_value: Number(row.shrinkage_value ?? 0),
     breakage_movements: Number(row.breakage_movements ?? 0),
     breakage_value: Number(row.breakage_value ?? 0),
+    staff_consumption_movements: Number(row.staff_consumption_movements ?? 0),
+    staff_consumption_value: Number(row.staff_consumption_value ?? 0),
   };
 }
 
@@ -280,4 +285,53 @@ export async function getKpiDailyTrend(
   }
 
   return points;
+}
+
+// ---------------------------------------------------------------------------
+// Attendance: QR-based entry tracking from poi-lector
+// ---------------------------------------------------------------------------
+export async function getKpiAttendance(
+  filters: DashboardFilters
+): Promise<AttendanceSummary> {
+  const { supabase, tenantId } = await getTenantId();
+
+  const { data } = await supabase.rpc("fn_kpi_attendance", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  });
+
+  const row = data?.[0] ?? {};
+  return {
+    total_entries: Number(row.total_entries ?? 0),
+    total_scans: Number(row.total_scans ?? 0),
+    unique_reservations: Number(row.unique_reservations ?? 0),
+    active_sessions: Number(row.active_sessions ?? 0),
+    avg_dwell_minutes: Number(row.avg_dwell_minutes ?? 0),
+    prev_total_entries: Number(row.prev_total_entries ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Hourly Attendance: Entries per hour with occupancy %
+// ---------------------------------------------------------------------------
+export async function getKpiHourlyAttendance(
+  filters: DashboardFilters
+): Promise<HourlyAttendancePoint[]> {
+  const { supabase, tenantId } = await getTenantId();
+
+  const { data } = await supabase.rpc("fn_kpi_hourly_attendance", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  });
+
+  return (data || []).map((row: Record<string, unknown>) => ({
+    hour_of_day: Number(row.hour_of_day),
+    entries: Number(row.entries),
+    scan_count: Number(row.scan_count),
+    occupancy_pct: Number(row.occupancy_pct),
+  }));
 }

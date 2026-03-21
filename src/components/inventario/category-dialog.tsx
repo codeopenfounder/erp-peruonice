@@ -28,9 +28,11 @@ interface CategoryDialogProps {
   onOpenChange: (open: boolean) => void;
   category?: ProductCategory | null;
   parentId?: string;
+  /** When set, auto-assigns type and hides the selector (inferred from page context). */
+  defaultType?: "product" | "service";
 }
 
-export function CategoryDialog({ open, onOpenChange, category, parentId }: CategoryDialogProps) {
+export function CategoryDialog({ open, onOpenChange, category, parentId, defaultType }: CategoryDialogProps) {
   const isEditing = !!category;
   const createMutation = useCreateCategory();
   const updateMutation = useUpdateCategory();
@@ -47,7 +49,7 @@ export function CategoryDialog({ open, onOpenChange, category, parentId }: Categ
     resolver: zodResolver(createCategorySchema) as any,
     defaultValues: {
       name: category?.name ?? "",
-      type: category?.type ?? "both",
+      type: category?.type ?? defaultType ?? "both",
       parent_id: category?.parent_id ?? parentId ?? "",
       sort_order: category?.sort_order ?? 0,
     },
@@ -92,22 +94,24 @@ export function CategoryDialog({ open, onOpenChange, category, parentId }: Categ
             )}
           </div>
 
-          <div className="space-y-2">
-            <Label>Tipo</Label>
-            <Select
-              value={typeValue}
-              onValueChange={(v) => setValue("type", v as "product" | "service" | "both")}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="both">Productos y Servicios</SelectItem>
-                <SelectItem value="product">Solo Productos</SelectItem>
-                <SelectItem value="service">Solo Servicios</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+          {!defaultType && (
+            <div className="space-y-2">
+              <Label>Tipo</Label>
+              <Select
+                value={typeValue}
+                onValueChange={(v) => setValue("type", v as "product" | "service" | "both")}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="both">Productos y Servicios</SelectItem>
+                  <SelectItem value="product">Solo Productos</SelectItem>
+                  <SelectItem value="service">Solo Servicios</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

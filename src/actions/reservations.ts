@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { createReservationSchema } from "@/lib/validators/reservation";
 import type {
@@ -95,11 +96,14 @@ export async function getReservationsBySlot(
   productId: string,
   branchId: string,
   date: string,
-  slotStart: string
-): Promise<Reservation[]> {
+  slotStart: string,
+  slotEnd?: string
+): Promise<{ reservations: Reservation[]; groupReservations: (Reservation & { product_name?: string })[] }> {
   await requirePermission("reservas.reservas", "view");
   const { supabase, tenantId } = await getTenantId();
+  const adminClient = createAdminClient();
 
+  // Get direct reservations for this service+slot
   const { data, error } = await supabase
     .from("reservations")
     .select(`*, customers(document_number)`)
@@ -113,11 +117,69 @@ export async function getReservationsBySlot(
 
   if (error) throw new Error(error.message);
 
-  return (data || []).map((r) => ({
+  const reservations = (data || []).map((r) => ({
     ...r,
     customer_document_number: (r.customers as unknown as { document_number: string } | null)?.document_number ?? null,
     customers: undefined,
   })) as Reservation[];
+
+  // Check if this service has a capacity group — if so, fetch overlapping reservations from other members
+  let groupReservations: (Reservation & { product_name?: string })[] = [];
+
+  // Find the schedule for this product+branch
+  const { data: schedule } = await adminClient
+    .from("service_schedules")
+    .select("id")
+    .eq("tenant_id", tenantId)
+    .eq("product_id", productId)
+    .eq("branch_id", branchId)
+    .eq("is_active", true)
+    .single();
+
+  if (schedule) {
+    // Check if schedule is in a capacity group
+    const { data: membership } = await adminClient
+      .from("capacity_group_members")
+      .select("group_id")
+      .eq("schedule_id", schedule.id)
+      .single();
+
+    if (membership) {
+      // Get all OTHER schedule IDs in the same group
+      const { data: otherMembers } = await adminClient
+        .from("capacity_group_members")
+        .select("schedule_id")
+        .eq("group_id", membership.group_id)
+        .neq("schedule_id", schedule.id);
+
+      const otherScheduleIds = (otherMembers || []).map((m) => m.schedule_id);
+
+      if (otherScheduleIds.length > 0) {
+        // Find reservations from other group members that OVERLAP with this slot
+        const querySlotEnd = slotEnd || slotStart;
+        const { data: otherRes } = await adminClient
+          .from("reservations")
+          .select(`*, products(name), customers(document_number)`)
+          .eq("tenant_id", tenantId)
+          .eq("reservation_date", date)
+          .in("schedule_id", otherScheduleIds)
+          .in("status", ["confirmed", "completed"])
+          .lt("slot_start", querySlotEnd)
+          .gt("slot_end", slotStart)
+          .order("created_at", { ascending: true });
+
+        groupReservations = (otherRes || []).map((r) => ({
+          ...r,
+          product_name: (r.products as unknown as { name: string } | null)?.name ?? undefined,
+          customer_document_number: (r.customers as unknown as { document_number: string } | null)?.document_number ?? null,
+          customers: undefined,
+          products: undefined,
+        })) as (Reservation & { product_name?: string })[];
+      }
+    }
+  }
+
+  return { reservations, groupReservations };
 }
 
 // ---------------------------------------------------------------------------
@@ -130,38 +192,97 @@ export async function getReservationsByDateRange(
   endDate: string
 ): Promise<DayScheduleSummary[]> {
   await requirePermission("reservas.reservas", "view");
-  const { supabase, tenantId } = await getTenantId();
+  const { tenantId } = await getTenantId();
+  const adminClient = createAdminClient();
 
-  let query = supabase
-    .from("reservation_slot_counts")
-    .select("slot_date, reserved_count, capacity, service_schedules!inner(product_id, branch_id)")
+  // 1. Get active schedules (filtered by product/branch if specified)
+  let schedQuery = adminClient
+    .from("service_schedules")
+    .select("id, product_id, branch_id, interval_minutes, default_capacity")
     .eq("tenant_id", tenantId)
-    .gte("slot_date", startDate)
-    .lte("slot_date", endDate);
+    .eq("is_active", true);
+  if (productId) schedQuery = schedQuery.eq("product_id", productId);
+  if (branchId) schedQuery = schedQuery.eq("branch_id", branchId);
 
-  // Note: filtering through relation requires the join
-  const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  const { data: schedules } = await schedQuery;
+  if (!schedules || schedules.length === 0) return [];
 
-  // Group by date and aggregate
-  const dayMap: Record<string, { capacity: number; booked: number }> = {};
-  (data || []).forEach((row) => {
-    const schedule = row.service_schedules as unknown as { product_id: string; branch_id: string };
-    if (productId && schedule.product_id !== productId) return;
-    if (branchId && schedule.branch_id !== branchId) return;
+  const scheduleIds = schedules.map((s) => s.id);
 
-    const date = row.slot_date;
-    if (!dayMap[date]) dayMap[date] = { capacity: 0, booked: 0 };
-    dayMap[date].capacity += row.capacity;
-    dayMap[date].booked += row.reserved_count;
+  // 2. Get time ranges for these schedules
+  const { data: timeRanges } = await adminClient
+    .from("schedule_time_ranges")
+    .select("schedule_id, day_of_week, start_time, end_time, capacity_override")
+    .in("schedule_id", scheduleIds);
+
+  // 3. Get actual reservations (booked counts) in the date range
+  const { data: reservations } = await adminClient
+    .from("reservations")
+    .select("reservation_date, quantity, schedule_id")
+    .eq("tenant_id", tenantId)
+    .in("schedule_id", scheduleIds)
+    .in("status", ["confirmed", "completed"])
+    .gte("reservation_date", startDate)
+    .lte("reservation_date", endDate);
+
+  // 4. Build schedule lookup: schedule_id → { interval_minutes, default_capacity }
+  const schedMap = new Map<string, { interval_minutes: number; default_capacity: number }>();
+  schedules.forEach((s) => schedMap.set(s.id, { interval_minutes: s.interval_minutes, default_capacity: s.default_capacity }));
+
+  // 5. Build time ranges per schedule+day_of_week
+  const rangeMap = new Map<string, { start: string; end: string; cap: number | null }[]>();
+  (timeRanges || []).forEach((tr) => {
+    const key = `${tr.schedule_id}:${tr.day_of_week}`;
+    if (!rangeMap.has(key)) rangeMap.set(key, []);
+    rangeMap.get(key)!.push({ start: tr.start_time, end: tr.end_time, cap: tr.capacity_override });
   });
 
-  return Object.entries(dayMap).map(([date, stats]) => ({
-    date,
-    total_capacity: stats.capacity,
-    total_booked: stats.booked,
-    occupancy_percent: stats.capacity > 0 ? Math.round((stats.booked / stats.capacity) * 100) : 0,
-  }));
+  // 6. Calculate theoretical capacity per day + actual booked
+  const dayMap: Record<string, { capacity: number; booked: number }> = {};
+
+  // For each date in the range, compute theoretical capacity from schedule definition
+  const start = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+    const dateStr = d.toISOString().split("T")[0];
+    const dow = d.getDay(); // 0=Sun
+
+    let dayCapacity = 0;
+    for (const sched of schedules) {
+      const info = schedMap.get(sched.id)!;
+      const ranges = rangeMap.get(`${sched.id}:${dow}`) || [];
+      for (const range of ranges) {
+        // Count slots in this time range
+        const [sh, sm] = range.start.split(":").map(Number);
+        const [eh, em] = range.end.split(":").map(Number);
+        const rangeMinutes = (eh * 60 + em) - (sh * 60 + sm);
+        const slotCount = Math.floor(rangeMinutes / info.interval_minutes);
+        const capPerSlot = range.cap ?? info.default_capacity;
+        dayCapacity += slotCount * capPerSlot;
+      }
+    }
+
+    if (dayCapacity > 0) {
+      if (!dayMap[dateStr]) dayMap[dateStr] = { capacity: dayCapacity, booked: 0 };
+      else dayMap[dateStr].capacity = dayCapacity;
+    }
+  }
+
+  // Add booked counts from actual reservations
+  (reservations || []).forEach((r) => {
+    const dateStr = r.reservation_date;
+    if (!dayMap[dateStr]) dayMap[dateStr] = { capacity: 0, booked: 0 };
+    dayMap[dateStr].booked += r.quantity;
+  });
+
+  return Object.entries(dayMap)
+    .filter(([, stats]) => stats.capacity > 0 || stats.booked > 0)
+    .map(([date, stats]) => ({
+      date,
+      total_capacity: stats.capacity,
+      total_booked: stats.booked,
+      occupancy_percent: stats.capacity > 0 ? Math.round((stats.booked / stats.capacity) * 100) : 0,
+    }));
 }
 
 // ---------------------------------------------------------------------------
@@ -213,12 +334,22 @@ export async function cancelReservation(id: string, reason?: string) {
 // ---------------------------------------------------------------------------
 // Reservation KPIs
 // ---------------------------------------------------------------------------
+function getPeruDateStr(date?: Date): string {
+  const d = date ?? new Date();
+  const utcMs = d.getTime() + d.getTimezoneOffset() * 60000;
+  const peru = new Date(utcMs - 5 * 3600000);
+  const y = peru.getFullYear();
+  const m = String(peru.getMonth() + 1).padStart(2, "0");
+  const day = String(peru.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 export async function getReservationKPIs(): Promise<ReservationKPIs> {
   await requirePermission("reservas.reservas", "view");
   const { supabase, tenantId } = await getTenantId();
 
-  const today = new Date().toISOString().split("T")[0];
-  const nextWeek = new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0];
+  const today = getPeruDateStr();
+  const nextWeek = getPeruDateStr(new Date(Date.now() + 7 * 86400000));
 
   // Today's count
   const { count: todayCount } = await supabase

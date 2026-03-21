@@ -69,6 +69,8 @@ export interface InventoryHealth {
   shrinkage_value: number;
   breakage_movements: number;
   breakage_value: number;
+  staff_consumption_movements: number;
+  staff_consumption_value: number;
 }
 
 export interface DailyTrendPoint {
@@ -84,4 +86,20 @@ export interface DailyTrendPoint {
 export interface ProductRankingResult {
   top: ProductRankingItem[];
   flop: ProductRankingItem[];
+}
+
+export interface AttendanceSummary {
+  total_entries: number;
+  total_scans: number;
+  unique_reservations: number;
+  active_sessions: number;
+  avg_dwell_minutes: number;
+  prev_total_entries: number;
+}
+
+export interface HourlyAttendancePoint {
+  hour_of_day: number;
+  entries: number;
+  scan_count: number;
+  occupancy_pct: number;
 }

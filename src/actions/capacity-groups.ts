@@ -304,44 +304,53 @@ export async function getAvailableSchedulesForGroup(
   branchId: string,
   excludeGroupId?: string
 ) {
-  const { tenantId } = await requirePermission("reservas.capacidad", "view");
-  const supabase = createAdminClient();
+  try {
+    if (!branchId) return [];
 
-  // Get all active schedules for the branch
-  const { data: schedules, error } = await supabase
-    .from("service_schedules")
-    .select(`id, interval_minutes, is_active, products!inner(name)`)
-    .eq("tenant_id", tenantId)
-    .eq("branch_id", branchId)
-    .eq("is_active", true)
-    .order("created_at", { ascending: false });
+    const { tenantId } = await requirePermission("reservas.capacidad", "view");
+    const supabase = createAdminClient();
 
-  if (error) throw new Error(error.message);
-  if (!schedules || schedules.length === 0) return [];
+    // Get all active schedules for the branch
+    const { data: schedules, error } = await supabase
+      .from("service_schedules")
+      .select(`id, interval_minutes, is_active, product_id, products(name)`)
+      .eq("tenant_id", tenantId)
+      .eq("branch_id", branchId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false });
 
-  // Get all schedules that are already in a group
-  const { data: usedMembers } = await supabase
-    .from("capacity_group_members")
-    .select("schedule_id, group_id");
+    if (error || !schedules || schedules.length === 0) return [];
 
-  const usedMap = new Map<string, string>();
-  (usedMembers || []).forEach((m) => usedMap.set(m.schedule_id, m.group_id));
+    // Get all schedules that are already in a group
+    const { data: usedMembers } = await supabase
+      .from("capacity_group_members")
+      .select("schedule_id, group_id");
 
-  // Filter: keep schedules that are either free or belong to the excluded group
-  const available = schedules
-    .filter((s) => {
-      const assignedGroup = usedMap.get(s.id);
-      if (!assignedGroup) return true; // not in any group
-      if (excludeGroupId && assignedGroup === excludeGroupId) return true; // in the current group being edited
-      return false;
-    })
-    .map((s) => ({
-      id: s.id,
-      product_name: (s.products as unknown as { name: string }).name,
-      interval_minutes: s.interval_minutes,
-    }));
+    const usedMap = new Map<string, string>();
+    (usedMembers || []).forEach((m) => usedMap.set(m.schedule_id, m.group_id));
 
-  return available;
+    // Filter: keep schedules that are either free or belong to the excluded group
+    const available = schedules
+      .filter((s) => {
+        const assignedGroup = usedMap.get(s.id);
+        if (!assignedGroup) return true;
+        if (excludeGroupId && assignedGroup === excludeGroupId) return true;
+        return false;
+      })
+      .map((s) => {
+        const productData = s.products as unknown as { name: string } | null;
+        return {
+          id: s.id,
+          product_name: productData?.name ?? "Sin nombre",
+          interval_minutes: s.interval_minutes,
+        };
+      });
+
+    return available;
+  } catch (err) {
+    console.error("[getAvailableSchedulesForGroup]", err);
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------

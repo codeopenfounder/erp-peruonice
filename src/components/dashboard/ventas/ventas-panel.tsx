@@ -1,9 +1,9 @@
 "use client";
 
-import { DollarSign, Landmark } from "lucide-react";
+import { DollarSign, Landmark, Users } from "lucide-react";
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import { MetricCard } from "@/components/dashboard/shared/metric-card";
-import { useSalesKPIs } from "@/hooks/queries/use-kpi";
+import { useSalesKPIs, useAttendance } from "@/hooks/queries/use-kpi";
 import { useGastosKPIs } from "@/hooks/queries/use-gastos";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsCard } from "./transactions-card";
@@ -25,16 +25,17 @@ export function VentasPanel() {
   const { data: gastos, isLoading: gastosLoading } = useGastosKPIs(
     filters.date_from
   );
+  const { data: attendance, isLoading: attLoading } = useAttendance(filters);
 
-  const isLoading = salesLoading || gastosLoading;
+  const isLoading = salesLoading || gastosLoading || attLoading;
 
   return (
     <div className="space-y-6">
       {/* KPI Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {isLoading ? (
           <>
-            {Array.from({ length: 4 }).map((_, i) => (
+            {Array.from({ length: 5 }).map((_, i) => (
               <Skeleton key={i} className="h-[88px] rounded-xl" />
             ))}
           </>
@@ -50,6 +51,15 @@ export function VentasPanel() {
               description="vs. periodo anterior"
             />
             <TransactionsCard data={sales} isLoading={isLoading} />
+            <MetricCard
+              title="Asistentes"
+              value={attendance?.total_entries ?? 0}
+              icon={Users}
+              variant="accent"
+              prevValue={attendance?.prev_total_entries}
+              currentValue={attendance?.total_entries}
+              description="vs. periodo anterior"
+            />
             <MetricCard
               title="Cajas Abiertas"
               value={`${gastos?.open_registers ?? 0} / ${gastos?.total_registers ?? 0}`}

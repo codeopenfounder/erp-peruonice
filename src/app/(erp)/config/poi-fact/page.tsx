@@ -1115,9 +1115,14 @@ export default function PoiFactPage() {
               </div>
             </div>
             <Separator />
-            <p className="text-xs text-muted-foreground text-center">
-              Contacta al administrador para obtener el instalador
-            </p>
+            <a
+              href="/downloads/POI-Fact-Setup.exe"
+              download="POI-Fact-Setup.exe"
+              className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              <Download className="size-4" />
+              Descargar Instalador (4.6 MB)
+            </a>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setInstallOpen(false)}>

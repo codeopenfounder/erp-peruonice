@@ -50,8 +50,8 @@ export async function POST(request: Request) {
       .from("reservations")
       .select(
         `id, access_code, reservation_date, slot_start, slot_end,
-         quantity, entries_used, status, checked_in_at, customer_name,
-         products(name)`,
+         quantity, entries_used, status, checked_in_at, checked_out_at,
+         customer_name, products(name), branches(name)`,
       )
       .eq("tenant_id", tokenData.tenantId)
       .eq("reservation_date", date)
@@ -66,9 +66,10 @@ export async function POST(request: Request) {
       );
     }
 
-    // Flatten the joined product name
+    // Flatten the joined product and branch names
     const mapped = (reservations || []).map((r) => {
       const product = r.products as unknown as { name: string } | null;
+      const branch = r.branches as unknown as { name: string } | null;
       return {
         id: r.id,
         access_code: r.access_code,
@@ -79,8 +80,10 @@ export async function POST(request: Request) {
         entries_used: r.entries_used,
         status: r.status,
         checked_in_at: r.checked_in_at,
+        checked_out_at: r.checked_out_at,
         customer_name: r.customer_name,
         service_name: product?.name || null,
+        branch_name: branch?.name || null,
       };
     });
 

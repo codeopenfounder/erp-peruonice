@@ -80,6 +80,8 @@ interface PushMovement {
   reason: string | null;
   receipt_number: string | null;
   cash_register_id: string | null;
+  authorized_by: string | null;
+  authorized_name: string | null;
 }
 
 export async function POST(request: Request) {
@@ -800,6 +802,8 @@ export async function POST(request: Request) {
             reason: mov.reason,
             receipt_number: mov.receipt_number,
             cash_register_id: mov.cash_register_id || null,
+            authorized_by: mov.authorized_by || null,
+            authorized_name: mov.authorized_name || null,
           })
           .select("id")
           .single();

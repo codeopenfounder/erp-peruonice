@@ -97,13 +97,16 @@ export function getMovementsColumns(): ColumnDef<GastosMovementListItem>[] {
     {
       accessorKey: "created_by_name",
       header: "Responsable",
-      cell: ({ row }) => (
-        <span className="text-sm text-foreground">
-          {row.original.created_by_name || (
-            <span className="text-muted-foreground">&mdash;</span>
-          )}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const name = row.original.authorized_name || row.original.created_by_name;
+        return (
+          <span className="text-sm text-foreground">
+            {name || (
+              <span className="text-muted-foreground">&mdash;</span>
+            )}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "amount",

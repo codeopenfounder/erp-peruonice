@@ -277,7 +277,7 @@ export async function getGastosMovements(
   // Build the query for movements
   let query = supabase
     .from("cash_register_movements")
-    .select("id, opening_id, cash_register_id, type, amount, description, reason, receipt_number, payment_method, invoice_id, created_by, created_at", {
+    .select("id, opening_id, cash_register_id, type, amount, description, reason, receipt_number, payment_method, invoice_id, created_by, created_at, authorized_name", {
       count: "exact",
     })
     .eq("tenant_id", tenantId)
@@ -425,6 +425,7 @@ export async function getGastosMovements(
       invoice_id: m.invoice_id ?? null,
       created_at: m.created_at,
       created_by_name: m.created_by ? profileMap[m.created_by] ?? null : null,
+      authorized_name: m.authorized_name ?? null,
       branch_name: reg?.branch_id ? branchMap[reg.branch_id] ?? null : null,
       cash_register_name: reg?.name ?? null,
       cash_register_code: reg?.code ?? null,
@@ -685,7 +686,7 @@ export async function getDailyReport(
   // Get movements for these openings
   const { data: movementsRaw } = await supabase
     .from("cash_register_movements")
-    .select("id, opening_id, type, amount, description, reason, receipt_number, payment_method, invoice_id, created_by, created_at")
+    .select("id, opening_id, type, amount, description, reason, receipt_number, payment_method, invoice_id, created_by, created_at, authorized_name")
     .in("opening_id", openingIds)
     .order("created_at", { ascending: false });
   const rawMovements = movementsRaw || [];
@@ -727,6 +728,7 @@ export async function getDailyReport(
       invoice_id: m.invoice_id ?? null,
       created_at: m.created_at,
       created_by_name: m.created_by ? profileMap[m.created_by] ?? null : null,
+      authorized_name: m.authorized_name ?? null,
       branch_name: reg?.branch_id ? branchMap[reg.branch_id] ?? null : null,
       cash_register_name: reg?.name ?? null,
       cash_register_code: null,

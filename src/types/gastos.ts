@@ -16,6 +16,7 @@ export interface GastosMovementListItem
     | "created_at"
   > {
   created_by_name: string | null;
+  authorized_name: string | null;
   branch_name: string | null;
   cash_register_name: string | null;
   cash_register_code: string | null;

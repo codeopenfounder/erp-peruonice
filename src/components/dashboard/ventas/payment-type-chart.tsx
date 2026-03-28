@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef, useCallback } from "react";
 import {
   PieChart,
   Pie,
@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import { ChartCard } from "@/components/dashboard/shared/chart-card";
+import { ChartExportButton } from "@/components/dashboard/shared/chart-export-button";
 import { useSalesKPIs } from "@/hooks/queries/use-kpi";
 
 const formatCurrency = (value: number) =>
@@ -75,8 +76,15 @@ function CustomLegend({
   );
 }
 
+const PAYMENT_EXPORT_COLS = [
+  { header: "Metodo", key: "name", width: 16 },
+  { header: "Monto (S/)", key: "value", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "% del Total", key: "pct", width: 12, format: (v: unknown) => Number(v || 0).toFixed(1) + "%" },
+];
+
 export function PaymentTypeChart() {
   const { filters } = useDashboardFilters();
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data: sales, isLoading, isFetching } = useSalesKPIs(filters);
 
   const chartData = useMemo(() => {
@@ -97,13 +105,25 @@ export function PaymentTypeChart() {
     })).filter((d) => d.value > 0);
   }, [sales]);
 
+  const getData = useCallback(() => chartData as unknown as Record<string, unknown>[], [chartData]);
+
   return (
     <ChartCard
       title="Metodos de Pago"
       isLoading={isLoading}
       isFetching={isFetching}
       isEmpty={!chartData.length}
+      action={
+        <ChartExportButton
+          chartTitle="Metodos de Pago"
+          dateRange={{ from: filters.date_from, to: filters.date_to }}
+          columns={PAYMENT_EXPORT_COLS}
+          getData={getData}
+          chartRef={chartRef}
+        />
+      }
     >
+      <div ref={chartRef}>
       <ResponsiveContainer width="100%" height={300}>
         <PieChart>
           <Pie
@@ -124,6 +144,7 @@ export function PaymentTypeChart() {
           <Legend content={<CustomLegend />} />
         </PieChart>
       </ResponsiveContainer>
+      </div>
     </ChartCard>
   );
 }

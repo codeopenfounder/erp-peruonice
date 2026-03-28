@@ -11,6 +11,8 @@ import type {
   DailyTrendPoint,
   AttendanceSummary,
   HourlyAttendancePoint,
+  ExpensesSummary,
+  ExpensesTrendPoint,
 } from "@/types/kpi";
 
 async function getTenantId() {
@@ -113,6 +115,7 @@ export async function getKpiHourlySales(
     hour_of_day: Number(row.hour_of_day),
     revenue: Number(row.revenue),
     tx_count: Number(row.tx_count),
+    products_sold: Number(row.products_sold ?? 0),
   }));
 }
 
@@ -152,6 +155,8 @@ export async function getKpiProductRanking(
     total_revenue: Number(row.total_revenue ?? 0),
     pct_of_total: Number(row.pct_of_total ?? 0),
     avg_unit_price: Number(row.avg_unit_price ?? 0),
+    cost_price: Number(row.cost_price ?? 0),
+    margin: Number(row.margin ?? 0),
   });
 
   return {
@@ -224,67 +229,64 @@ export async function getKpiInventoryHealth(
     breakage_value: Number(row.breakage_value ?? 0),
     staff_consumption_movements: Number(row.staff_consumption_movements ?? 0),
     staff_consumption_value: Number(row.staff_consumption_value ?? 0),
+    waste_units: Number(row.waste_units ?? 0),
+    shrinkage_units: Number(row.shrinkage_units ?? 0),
+    breakage_units: Number(row.breakage_units ?? 0),
+    staff_consumption_units: Number(row.staff_consumption_units ?? 0),
+    total_loss_value: Number(row.total_loss_value ?? 0),
+    loss_pct_of_sales: Number(row.loss_pct_of_sales ?? 0),
+    loss_pct_of_transactions: Number(row.loss_pct_of_transactions ?? 0),
   };
 }
 
 // ---------------------------------------------------------------------------
-// Daily Trend (from snapshots for historical, real-time for today)
+// Daily Trend (direct query from invoices — no snapshots)
 // ---------------------------------------------------------------------------
 export async function getKpiDailyTrend(
   filters: DashboardFilters
 ): Promise<DailyTrendPoint[]> {
   const { supabase, tenantId } = await getTenantId();
-  const today = peruToday();
 
-  const { data: snapshots } = await supabase
-    .from("kpi_daily_snapshots")
-    .select(
-      "snapshot_date, total_revenue, transaction_count, avg_ticket, voided_amount, cortesia_amount, promotion_discount_total"
-    )
-    .eq("tenant_id", tenantId)
-    .is("branch_id", filters.branch_id || null)
-    .gte("snapshot_date", filters.date_from)
-    .lte("snapshot_date", filters.date_to)
-    .order("snapshot_date", { ascending: true });
+  const { data } = await supabase.rpc("fn_kpi_daily_trend", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  });
 
-  const points: DailyTrendPoint[] = (snapshots || []).map(
-    (s: Record<string, unknown>) => ({
-      date: String(s.snapshot_date),
-      total_revenue: Number(s.total_revenue ?? 0),
-      transaction_count: Number(s.transaction_count ?? 0),
-      avg_ticket: Number(s.avg_ticket ?? 0),
-      voided_amount: Number(s.voided_amount ?? 0),
-      cortesia_amount: Number(s.cortesia_amount ?? 0),
-      promotion_discount_total: Number(s.promotion_discount_total ?? 0),
-    })
-  );
+  return (data || []).map((row: Record<string, unknown>) => ({
+    date: String(row.trend_date ?? ""),
+    total_revenue: Number(row.total_revenue ?? 0),
+    transaction_count: Number(row.transaction_count ?? 0),
+    avg_ticket: Number(row.avg_ticket ?? 0),
+    voided_amount: Number(row.voided_amount ?? 0),
+    cortesia_amount: Number(row.cortesia_amount ?? 0),
+    promotion_discount_total: Number(row.promotion_discount_total ?? 0),
+  }));
+}
 
-  // If today is in range, add real-time data
-  if (filters.date_from <= today && filters.date_to >= today) {
-    const todayExists = points.some((p) => p.date === today);
-    if (!todayExists) {
-      const { data: todayData } = await supabase.rpc("fn_kpi_sales_summary", {
-        p_tenant_id: tenantId,
-        p_branch_id: filters.branch_id || null,
-        p_date_from: today,
-        p_date_to: today,
-      });
-      const t = todayData?.[0];
-      if (t) {
-        points.push({
-          date: today,
-          total_revenue: Number(t.total_revenue ?? 0),
-          transaction_count: Number(t.transaction_count ?? 0),
-          avg_ticket: Number(t.avg_ticket ?? 0),
-          voided_amount: 0,
-          cortesia_amount: 0,
-          promotion_discount_total: 0,
-        });
-      }
-    }
-  }
+// ---------------------------------------------------------------------------
+// Hourly Product Sales (per-product breakdown by hour)
+// ---------------------------------------------------------------------------
+export async function getKpiHourlyProductSales(
+  filters: DashboardFilters,
+  productId: string | null
+): Promise<{ hour_of_day: number; quantity_sold: number; revenue: number }[]> {
+  const { supabase, tenantId } = await getTenantId();
 
-  return points;
+  const { data } = await supabase.rpc("fn_kpi_hourly_product_sales", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+    p_product_id: productId || null,
+  });
+
+  return (data || []).map((row: Record<string, unknown>) => ({
+    hour_of_day: Number(row.hour_of_day),
+    quantity_sold: Number(row.quantity_sold ?? 0),
+    revenue: Number(row.revenue ?? 0),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -310,6 +312,9 @@ export async function getKpiAttendance(
     active_sessions: Number(row.active_sessions ?? 0),
     avg_dwell_minutes: Number(row.avg_dwell_minutes ?? 0),
     prev_total_entries: Number(row.prev_total_entries ?? 0),
+    entries_sold: Number(row.entries_sold ?? 0),
+    prev_entries_sold: Number(row.prev_entries_sold ?? 0),
+    no_show_rate: Number(row.no_show_rate ?? 0),
   };
 }
 
@@ -333,5 +338,53 @@ export async function getKpiHourlyAttendance(
     entries: Number(row.entries),
     scan_count: Number(row.scan_count),
     occupancy_pct: Number(row.occupancy_pct),
+    entries_sold: Number(row.entries_sold ?? 0),
   }));
 }
+
+// ---------------------------------------------------------------------------
+// Expenses Summary
+// ---------------------------------------------------------------------------
+export async function getKpiExpensesSummary(
+  filters: DashboardFilters
+): Promise<ExpensesSummary> {
+  const { supabase, tenantId } = await getTenantId();
+
+  const { data } = await supabase.rpc("fn_kpi_expenses_summary", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  });
+
+  const row = data?.[0] ?? {};
+  return {
+    total_expense_amount: Number(row.total_expense_amount ?? 0),
+    expense_count: Number(row.expense_count ?? 0),
+    prev_expense_amount: Number(row.prev_expense_amount ?? 0),
+    prev_expense_count: Number(row.prev_expense_count ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Expenses Trend
+// ---------------------------------------------------------------------------
+export async function getKpiExpensesTrend(
+  filters: DashboardFilters
+): Promise<ExpensesTrendPoint[]> {
+  const { supabase, tenantId } = await getTenantId();
+
+  const { data } = await supabase.rpc("fn_kpi_expenses_trend", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  });
+
+  return (data || []).map((row: Record<string, unknown>) => ({
+    expense_date: String(row.expense_date ?? ""),
+    total_amount: Number(row.total_amount ?? 0),
+    movement_count: Number(row.movement_count ?? 0),
+  }));
+}
+

@@ -9,6 +9,7 @@ import {
   Ticket,
   ArrowLeftRight,
   ClipboardCheck,
+  FileSearch,
   Monitor,
   CheckCircle,
   Wallet,
@@ -88,6 +89,7 @@ export const SIDEBAR_NAVIGATION: NavSection[] = [
     items: [
       { label: "Caja", href: "/finanzas/caja", icon: Monitor, module: "finanzas.caja" },
       { label: "Cierres de Caja", href: "/finanzas/cierres", icon: CheckCircle, module: "finanzas.cierres" },
+      { label: "Arqueos", href: "/finanzas/arqueos", icon: FileSearch, module: "finanzas.arqueos" },
       { label: "Movimientos", href: "/finanzas/movimientos", icon: ArrowLeftRight, module: "finanzas.movimientos" },
     ],
   },

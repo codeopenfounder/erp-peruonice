@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -11,6 +12,7 @@ import {
 } from "recharts";
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import { ChartCard } from "@/components/dashboard/shared/chart-card";
+import { ChartExportButton } from "@/components/dashboard/shared/chart-export-button";
 import { useHourlySales } from "@/hooks/queries/use-kpi";
 
 const formatCurrency = (value: number) =>
@@ -26,7 +28,7 @@ function CustomTooltip({
   label,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: { revenue: number; tx_count: number } }>;
+  payload?: Array<{ payload: { revenue: number; tx_count: number; products_sold?: number } }>;
   label?: string;
 }) {
   if (!active || !payload?.length) return null;
@@ -38,14 +40,22 @@ function CustomTooltip({
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-sm font-semibold">{formatCurrency(item.revenue)}</p>
       <p className="text-xs text-muted-foreground">
-        {item.tx_count} transacciones
+        {item.tx_count} tx · {item.products_sold ?? 0} productos
       </p>
     </div>
   );
 }
 
+const HOURLY_EXPORT_COLS = [
+  { header: "Hora", key: "label", width: 8 },
+  { header: "Ingresos (S/)", key: "revenue", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "Transacciones", key: "tx_count", width: 12 },
+  { header: "Productos", key: "products_sold", width: 12, format: (v: unknown) => Number(v || 0).toFixed(0) },
+];
+
 export function HourlyChart() {
   const { filters } = useDashboardFilters();
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data, isLoading, isFetching } = useHourlySales(filters);
 
   const isRange = filters.date_from !== filters.date_to;
@@ -54,13 +64,25 @@ export function HourlyChart() {
     label: `${point.hour_of_day}h`,
   }));
 
+  const getData = useCallback(() => chartData as unknown as Record<string, unknown>[], [chartData]);
+
   return (
     <ChartCard
       title={isRange ? "Promedio de Ventas por Hora" : "Ventas por Hora"}
       isLoading={isLoading}
       isFetching={isFetching}
       isEmpty={!chartData.length}
+      action={
+        <ChartExportButton
+          chartTitle="Ventas por Hora"
+          dateRange={{ from: filters.date_from, to: filters.date_to }}
+          columns={HOURLY_EXPORT_COLS}
+          getData={getData}
+          chartRef={chartRef}
+        />
+      }
     >
+      <div ref={chartRef}>
       <ResponsiveContainer width="100%" height={300}>
         <BarChart
           data={chartData}
@@ -86,6 +108,7 @@ export function HourlyChart() {
           />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </ChartCard>
   );
 }

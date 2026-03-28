@@ -13,10 +13,12 @@ export const createInventoryMovementSchema = z.object({
     "transfer",
     "income",
     "outcome",
+    "cortesia",
   ]),
   reason: z.string().max(500).optional().or(z.literal("")),
   notes: z.string().max(1000).optional().or(z.literal("")),
   branch_id: z.string().uuid("Sede requerida"),
+  responsible_id: z.string().uuid().optional(),
 });
 
 export type CreateInventoryMovementSchemaType = z.infer<

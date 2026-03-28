@@ -390,7 +390,7 @@ export async function POST(request: Request) {
         .from("invoices")
         .select("id, status, sunat_document_id, sunat_response_code, sunat_response_desc, xml_url, cdr_url, hash_code")
         .eq("tenant_id", ctx.tenantId)
-        .or("status.eq.issued,status.eq.sent_to_sunat,status.eq.accepted,status.eq.rejected")
+        .or("status.eq.issued,status.eq.sent_to_sunat,status.eq.accepted,status.eq.rejected,status.eq.voided")
         .order("created_at", { ascending: false })
         .limit(200);
 

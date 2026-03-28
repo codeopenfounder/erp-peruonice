@@ -10,7 +10,11 @@ import {
   getKpiDailyTrend,
   getKpiAttendance,
   getKpiHourlyAttendance,
+  getKpiExpensesSummary,
+  getKpiExpensesTrend,
+  getKpiHourlyProductSales,
 } from "@/actions/kpi";
+import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import type { DashboardFilters } from "@/types/kpi";
 
 export function useSalesKPIs(filters: DashboardFilters) {
@@ -76,3 +80,32 @@ export function useHourlyAttendance(filters: DashboardFilters) {
     placeholderData: keepPreviousData,
   });
 }
+
+export function useExpensesSummary() {
+  const { filters } = useDashboardFilters();
+  return useQuery({
+    queryKey: ["kpi-expenses-summary", filters],
+    queryFn: () => getKpiExpensesSummary(filters),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useExpensesTrend() {
+  const { filters } = useDashboardFilters();
+  return useQuery({
+    queryKey: ["kpi-expenses-trend", filters],
+    queryFn: () => getKpiExpensesTrend(filters),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useHourlyProductSales(productId: string | null) {
+  const { filters } = useDashboardFilters();
+  return useQuery({
+    queryKey: ["kpi-hourly-product-sales", filters, productId],
+    queryFn: () => getKpiHourlyProductSales(filters, productId),
+    enabled: !!productId,
+    placeholderData: keepPreviousData,
+  });
+}
+

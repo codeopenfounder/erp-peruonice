@@ -17,13 +17,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { FileSpreadsheet, FileText, Loader2, Search } from "lucide-react"
+import { FileSpreadsheet, FileText, FileDown, Loader2, Search } from "lucide-react"
 import { format, startOfMonth } from "date-fns"
 import { toast } from "sonner"
 import { useReporteSabanaVentas } from "@/hooks/queries/use-reportes"
 import { useBranchesForSelect } from "@/hooks/queries/use-branches"
 import { ReportPreviewTable } from "../report-preview-table"
 import { exportFlatData } from "@/lib/utils/export-flat"
+import { exportTableToPdf } from "@/lib/utils/export-pdf"
 import type { ReportFilters } from "@/types/reportes"
 
 interface Props {
@@ -84,21 +85,33 @@ export function SabanaVentasReport({ open, onOpenChange }: Props) {
     setGenerated(true)
   }
 
-  const handleExport = async (fmt: "xlsx" | "csv") => {
+  const handleExport = async (fmt: "xlsx" | "csv" | "pdf") => {
     if (!data || data.length === 0) {
       toast.error("No hay datos para exportar")
       return
     }
+    const filename = `sabana-ventas-${dateFrom}-a-${dateTo}`
+    const exportData = data as unknown as Record<string, unknown>[]
     try {
-      await exportFlatData({
-        filename: `sabana-ventas-${dateFrom}-a-${dateTo}`,
-        sheetName: "Ventas",
-        reportTitle: "Sabana General de Ventas y Transacciones",
-        dateRange: { from: dateFrom, to: dateTo },
-        columns: COLUMNS,
-        data: data as unknown as Record<string, unknown>[],
-        format: fmt,
-      })
+      if (fmt === "pdf") {
+        await exportTableToPdf({
+          filename,
+          reportTitle: "Sabana General de Ventas y Transacciones",
+          dateRange: { from: dateFrom, to: dateTo },
+          columns: COLUMNS,
+          data: exportData,
+        })
+      } else {
+        await exportFlatData({
+          filename,
+          sheetName: "Ventas",
+          reportTitle: "Sabana General de Ventas y Transacciones",
+          dateRange: { from: dateFrom, to: dateTo },
+          columns: COLUMNS,
+          data: exportData,
+          format: fmt,
+        })
+      }
       toast.success(`Reporte exportado como ${fmt.toUpperCase()}`)
     } catch {
       toast.error("Error al exportar el reporte")
@@ -201,6 +214,10 @@ export function SabanaVentasReport({ open, onOpenChange }: Props) {
               <Button variant="outline" size="sm" onClick={() => handleExport("csv")}>
                 <FileText className="mr-2 size-3.5" />
                 CSV
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => handleExport("pdf")}>
+                <FileDown className="mr-2 size-3.5" />
+                PDF
               </Button>
               <Button size="sm" onClick={() => handleExport("xlsx")}>
                 <FileSpreadsheet className="mr-2 size-3.5" />

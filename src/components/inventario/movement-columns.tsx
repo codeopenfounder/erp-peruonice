@@ -130,7 +130,7 @@ export function getMovementColumns(): ColumnDef<InventoryMovement>[] {
     },
     {
       accessorKey: "created_by_name",
-      header: "Creado por",
+      header: "Responsable",
       cell: ({ row }) => (
         <span className="text-xs text-muted-foreground">
           {row.original.created_by_name || "\u2014"}

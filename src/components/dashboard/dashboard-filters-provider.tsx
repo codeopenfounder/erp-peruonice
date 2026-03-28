@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
-import type { DashboardFilters, TimeGranularity } from "@/types/kpi";
+import type { DashboardFilters } from "@/types/kpi";
 
 function peruToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
@@ -46,7 +46,6 @@ export function DashboardFiltersProvider({
     date_from: searchParams.get("from") || today,
     date_to: searchParams.get("to") || today,
     branch_id: searchParams.get("branch") || undefined,
-    granularity: (searchParams.get("g") as TimeGranularity) || "daily",
   };
 
   const activeTab = searchParams.get("tab") || "ventas";
@@ -70,7 +69,6 @@ export function DashboardFiltersProvider({
       if (updates.date_to !== undefined) mapped.to = updates.date_to;
       if (updates.branch_id !== undefined)
         mapped.branch = updates.branch_id || undefined;
-      if (updates.granularity !== undefined) mapped.g = updates.granularity;
       updateParams(mapped);
     },
     [updateParams]

@@ -61,6 +61,9 @@ interface PushInvoice {
   customer_document_number: string | null;
   customer_name: string | null;
   customer_address: string | null;
+  authorized_by: string | null;
+  authorized_by_name: string | null;
+  authorized_at: string | null;
   items: PushInvoiceItem[];
   created_at: string;
 }
@@ -112,7 +115,7 @@ export async function POST(request: Request) {
       }
     }
 
-    // Resolve branch_id from the first invoice's cash_register_id
+    // Resolve branch_id: try invoices first, then user assignment, then first branch
     let branchId: string | null = null;
     const firstCashRegisterId = invoices.find((i) => i.cash_register_id)?.cash_register_id;
     if (firstCashRegisterId) {
@@ -122,6 +125,31 @@ export async function POST(request: Request) {
         .eq("id", firstCashRegisterId)
         .single();
       branchId = reg?.branch_id || null;
+    }
+    if (!branchId) {
+      const { data: assignment } = await adminClient
+        .from("fact_user_assignments")
+        .select("cash_register_id")
+        .eq("user_id", ctx.userId)
+        .eq("is_active", true)
+        .single();
+      if (assignment?.cash_register_id) {
+        const { data: reg } = await adminClient
+          .from("cash_registers")
+          .select("branch_id")
+          .eq("id", assignment.cash_register_id)
+          .single();
+        branchId = reg?.branch_id || null;
+      }
+    }
+    if (!branchId) {
+      const { data: branch } = await adminClient
+        .from("branches")
+        .select("id")
+        .eq("tenant_id", ctx.tenantId)
+        .limit(1)
+        .single();
+      branchId = branch?.id || null;
     }
 
     const results: {
@@ -212,6 +240,9 @@ export async function POST(request: Request) {
             customer_document_number: inv.customer_document_number || null,
             customer_name: inv.customer_name || null,
             customer_address: inv.customer_address || null,
+            authorized_by: inv.authorized_by || null,
+            authorized_by_name: inv.authorized_by_name || null,
+            authorized_at: inv.authorized_at || null,
             issue_date: (() => {
               const d = /[TZ+]/.test(inv.created_at)
                 ? new Date(inv.created_at)
@@ -241,24 +272,32 @@ export async function POST(request: Request) {
           const supplyIds = [...new Set(inv.items.filter(i => i.supply_id && !i.product_id).map(i => i.supply_id!))]
           const costMap = new Map<string, number>()
 
+          let prodCostRows: { id: string; cost_price: number | null }[] = [];
+          let supplyCostRows: { id: string; cost_price: number | null }[] = [];
           if (productIds.length > 0) {
             const { data: prodCosts } = await adminClient
               .from("products")
               .select("id, cost_price")
               .in("id", productIds)
-            for (const p of prodCosts || []) costMap.set(p.id, p.cost_price ?? 0)
+            prodCostRows = prodCosts || [];
+            for (const p of prodCostRows) costMap.set(p.id, p.cost_price ?? 0)
           }
           if (supplyIds.length > 0) {
             const { data: supplyCosts } = await adminClient
               .from("supplies")
               .select("id, cost_price")
               .in("id", supplyIds)
-            for (const s of supplyCosts || []) costMap.set(s.id, s.cost_price ?? 0)
+            supplyCostRows = supplyCosts || [];
+            for (const s of supplyCostRows) costMap.set(s.id, s.cost_price ?? 0)
           }
+
+          // Validate FK references: nullify product_id/supply_id if deleted from server
+          const existingProductIds = new Set(prodCostRows.map(p => p.id));
+          const existingSupplyIds = new Set(supplyCostRows.map(s => s.id));
 
           const itemRows = inv.items.map((item) => ({
             invoice_id: inserted.id,
-            product_id: item.product_id,
+            product_id: item.product_id && existingProductIds.has(item.product_id) ? item.product_id : null,
             description: item.description,
             quantity: item.quantity,
             unit_price: item.unit_price,
@@ -276,7 +315,7 @@ export async function POST(request: Request) {
             is_cortesia: item.is_cortesia || false,
             cortesia_reason: item.cortesia_reason || null,
             original_unit_price: item.original_unit_price || null,
-            supply_id: item.supply_id || null,
+            supply_id: item.supply_id && existingSupplyIds.has(item.supply_id) ? item.supply_id : null,
             cost_price: costMap.get(item.product_id || item.supply_id || "") ?? 0,
           }));
 
@@ -296,6 +335,28 @@ export async function POST(request: Request) {
           }
         }
 
+        // Ensure opening exists before creating cash movement
+        if (inv.opening_id) {
+          const { data: openingExists } = await adminClient
+            .from("cash_register_openings")
+            .select("id")
+            .eq("id", inv.opening_id)
+            .maybeSingle();
+
+          if (!openingExists) {
+            try {
+              await adminClient.from("cash_register_openings").insert({
+                id: inv.opening_id,
+                tenant_id: ctx.tenantId,
+                cash_register_id: inv.cash_register_id || null,
+                opened_by: ctx.userId,
+                opening_amount: 0,
+                status: "open",
+              });
+            } catch { /* opening may have been created by another concurrent request */ }
+          }
+        }
+
         // Create cash register movement for this invoice
         if (inv.opening_id) {
           const isNc = inv.document_type === "nota_credito";
@@ -305,21 +366,25 @@ export async function POST(request: Request) {
           const shouldCreate = (!isNc && !isNd) || ncReturn || ncPriceAdjust || isNd;
 
           if (shouldCreate) {
-            await adminClient.from("cash_register_movements").insert({
-              tenant_id: ctx.tenantId,
-              opening_id: inv.opening_id,
-              type: (ncReturn || ncPriceAdjust) ? "refund" : "sale",
-              amount: inv.total,
-              description: isNc
-                ? (ncReturn ? "Devolucion NC" : "Ajuste precio NC")
-                : isNd
-                  ? "Ajuste ND"
-                  : `Venta ${inv.document_type === "factura" ? "Factura" : "Boleta"}`,
-              invoice_id: inserted.id,
-              payment_method: inv.payment_method || "cash",
-              created_by: ctx.userId,
-              created_at: inv.created_at,
-            });
+            try {
+              await adminClient.from("cash_register_movements").insert({
+                tenant_id: ctx.tenantId,
+                opening_id: inv.opening_id,
+                type: (ncReturn || ncPriceAdjust) ? "refund" : "sale",
+                amount: inv.total,
+                description: isNc
+                  ? (ncReturn ? "Devolucion NC" : "Ajuste precio NC")
+                  : isNd
+                    ? "Ajuste ND"
+                    : `Venta ${inv.document_type === "factura" ? "Factura" : "Boleta"}`,
+                invoice_id: inserted.id,
+                payment_method: inv.payment_method || "cash",
+                created_by: ctx.userId,
+                created_at: inv.created_at,
+              });
+            } catch (cashMovErr) {
+              console.error("[sync-push] Cash movement insert failed:", cashMovErr);
+            }
           }
         }
 
@@ -447,12 +512,16 @@ export async function POST(request: Request) {
         // Record inventory movements
         // For NC with stock return (01,06,07): movement_type = "nc_return"
         // For normal sales: movement_type = "sale"
+        // For cortesia items: movement_type = "cortesia"
         // For NC without stock (02,03,04,05,09,10): skip inventory movements
-        const movementType = ncStockReturn ? "nc_return" : "sale";
+        const baseMovementType = ncStockReturn ? "nc_return" : "sale";
         const shouldRecordMovements = !isNcDocument || ncStockReturn;
 
         if (shouldRecordMovements) {
           for (const item of inv.items) {
+            // Per-item movement type: cortesia overrides "sale"
+            const movementType = (!ncStockReturn && item.is_cortesia) ? "cortesia" : baseMovementType;
+
             const CORTESIA_LABELS: Record<string, string> = {
               cliente_insatisfecho: "Cliente insatisfecho",
               falla_producto: "Falla de producto",
@@ -479,7 +548,7 @@ export async function POST(request: Request) {
                   quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
                   movement_type: movementType,
                   reason: ncNotes || reason,
-                  notes: ncStockReturn ? null : `Venta de ${item.description} (x${item.quantity})`,
+                  notes: ncStockReturn ? null : (item.is_cortesia ? `Cortesia de ${item.description} (x${item.quantity})` : `Venta de ${item.description} (x${item.quantity})`),
                   branch_id: branchId,
                   invoice_id: inserted.id,
                   created_by: ctx.userId,
@@ -695,6 +764,27 @@ export async function POST(request: Request) {
           continue;
         }
 
+        // Ensure the opening exists in Supabase (POI Fact may push movements
+        // before the heartbeat has synced the opening)
+        if (mov.opening_id) {
+          const { data: openingExists } = await adminClient
+            .from("cash_register_openings")
+            .select("id")
+            .eq("id", mov.opening_id)
+            .maybeSingle();
+
+          if (!openingExists) {
+            await adminClient.from("cash_register_openings").insert({
+              id: mov.opening_id,
+              tenant_id: ctx.tenantId,
+              cash_register_id: mov.cash_register_id || null,
+              opened_by: ctx.userId,
+              opening_amount: 0,
+              status: "open",
+            });
+          }
+        }
+
         const { data: inserted, error: movError } = await adminClient
           .from("cash_register_movements")
           .insert({
@@ -805,6 +895,157 @@ export async function POST(request: Request) {
       }
     }
 
+    // Process stock outputs (non-sale inventory movements from POS)
+    interface PushStockOutput {
+      id: string;
+      entity_type: string;
+      entity_id: string;
+      entity_name: string;
+      quantity: number;
+      reason: string;
+      notes: string | null;
+      created_by: string | null;
+      created_at: string;
+    }
+    const stockOutputs: PushStockOutput[] = body?.stock_outputs || [];
+    const stockOutputResults: { local_id: string; server_id: string | null; success: boolean; error?: string }[] = [];
+
+    for (const so of stockOutputs) {
+      try {
+        // Idempotency: check if already processed
+        const { data: existing } = await adminClient
+          .from("inventory_movements")
+          .select("id")
+          .eq("id", so.id)
+          .maybeSingle();
+
+        if (existing) {
+          stockOutputResults.push({ local_id: so.id, server_id: existing.id, success: true });
+          continue;
+        }
+
+        // Insert inventory movement
+        const { data: inserted, error: movError } = await adminClient
+          .from("inventory_movements")
+          .insert({
+            id: so.id,
+            tenant_id: ctx.tenantId,
+            entity_type: so.entity_type,
+            entity_id: so.entity_id,
+            quantity: so.quantity,
+            movement_type: so.reason,
+            reason: so.notes || null,
+            notes: `POS: ${so.entity_name} (x${so.quantity})`,
+            branch_id: branchId,
+            created_by: so.created_by || ctx.userId,
+            created_at: so.created_at,
+          })
+          .select("id")
+          .single();
+
+        if (movError || !inserted) {
+          stockOutputResults.push({ local_id: so.id, server_id: null, success: false, error: movError?.message });
+          continue;
+        }
+
+        // Decrement stock on server
+        if (so.entity_type === "supply") {
+          await adminClient.rpc("fn_decrement_supply_stock", {
+            p_supply_id: so.entity_id,
+            p_quantity: so.quantity,
+          });
+          await adminClient.rpc("fn_refresh_composite_stock_for_supply", {
+            p_supply_id: so.entity_id,
+          });
+        } else if (so.entity_type === "product") {
+          const { data: remaining } = await adminClient.rpc("fn_decrement_stock", {
+            p_product_id: so.entity_id,
+            p_quantity: so.quantity,
+          });
+          if (typeof remaining === "number" && remaining >= 0) {
+            stockUpdates.push({ product_id: so.entity_id, stock_quantity: remaining });
+          }
+        }
+
+        stockOutputResults.push({ local_id: so.id, server_id: inserted.id, success: true });
+      } catch (e) {
+        stockOutputResults.push({ local_id: so.id, server_id: null, success: false, error: String(e) });
+      }
+    }
+
+    // Process authorization logs
+    const authLogs: Array<{
+      id: string;
+      invoice_id?: string | null;
+      operation: string;
+      reason_code?: string | null;
+      reason_text?: string | null;
+      amount?: number | null;
+      cashier_id?: string | null;
+      cashier_name?: string | null;
+      authorizer_id?: string | null;
+      authorizer_name?: string | null;
+      authorizer_cargo?: string | null;
+      self_authorized: boolean;
+      cash_register_id?: string | null;
+      opening_id?: string | null;
+      created_at: string;
+    }> = body?.authorization_logs || [];
+    const authLogResults: { local_id: string; server_id: string | null; success: boolean }[] = [];
+
+    for (const al of authLogs) {
+      try {
+        const { data: existing } = await adminClient
+          .from("authorization_log")
+          .select("id")
+          .eq("id", al.id)
+          .maybeSingle();
+
+        if (existing) {
+          authLogResults.push({ local_id: al.id, server_id: existing.id, success: true });
+          continue;
+        }
+
+        // Resolve invoice server_id from results
+        let invoiceServerId: string | null = al.invoice_id || null;
+        if (invoiceServerId) {
+          const match = results.find((r) => r.local_id === invoiceServerId);
+          if (match?.server_id) invoiceServerId = match.server_id;
+        }
+
+        const { data: inserted, error: alError } = await adminClient
+          .from("authorization_log")
+          .insert({
+            id: al.id,
+            tenant_id: ctx.tenantId,
+            invoice_id: invoiceServerId,
+            operation: al.operation,
+            reason_code: al.reason_code || null,
+            reason_text: al.reason_text || null,
+            amount: al.amount || null,
+            cashier_id: al.cashier_id || ctx.userId,
+            cashier_name: al.cashier_name || null,
+            authorizer_id: al.authorizer_id || null,
+            authorizer_name: al.authorizer_name || null,
+            authorizer_cargo: al.authorizer_cargo || null,
+            self_authorized: al.self_authorized ?? false,
+            cash_register_id: al.cash_register_id || null,
+            opening_id: al.opening_id || null,
+            created_at: al.created_at,
+          })
+          .select("id")
+          .single();
+
+        authLogResults.push({
+          local_id: al.id,
+          server_id: alError ? null : inserted?.id || null,
+          success: !alError,
+        });
+      } catch {
+        authLogResults.push({ local_id: al.id, server_id: null, success: false });
+      }
+    }
+
     // Broadcast stock updates to all terminals
     if (stockUpdates.length > 0) {
       await broadcastBatchStockUpdate(ctx.tenantId, stockUpdates, ctx.userId);
@@ -849,6 +1090,8 @@ export async function POST(request: Request) {
         invoices: results,
         movements: movementResults,
         reservations: reservationResults,
+        stock_outputs: stockOutputResults,
+        authorization_logs: authLogResults,
         updated_stocks: stockUpdates,
         synced_customers: customerResults.length,
         server_time: new Date().toISOString(),

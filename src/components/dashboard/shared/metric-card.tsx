@@ -53,7 +53,7 @@ export function MetricCard({
   }
 
   return (
-    <Card className={cn("py-4", styles.border, className)}>
+    <Card className={cn("py-4 animate-in fade-in-0 slide-in-from-bottom-2 duration-300", styles.border, className)}>
       <CardContent className="flex items-center gap-4">
         <div
           className={cn(

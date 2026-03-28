@@ -2,7 +2,7 @@
 
 import { Suspense, useState, useMemo, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeftRight, Trash2, Search, ArrowDown, ShoppingCart, Plus, Download } from "lucide-react";
+import { ArrowLeftRight, Trash2, Search, ArrowDown, ShoppingCart, Plus, Download, Gift } from "lucide-react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/ui/page-header";
 import { KpiCard } from "@/components/kpi/kpi-card";
@@ -41,6 +41,7 @@ const MOVEMENT_TYPE_OPTIONS: { value: InventoryMovementType; label: string }[] =
   { value: "outcome", label: "Egreso" },
   { value: "sale", label: "Venta" },
   { value: "nc_return", label: "Devolucion NC" },
+  { value: "cortesia", label: "Cortesia" },
 ];
 
 export default function MovimientosPageWrapper() {
@@ -217,6 +218,13 @@ function MovimientosPage() {
             description="Ventas registradas"
             icon={ShoppingCart}
             variant="success"
+          />
+          <KpiCard
+            title="Cortesias"
+            value={kpis?.cortesia_count ?? 0}
+            description="Salidas operativas"
+            icon={Gift}
+            variant="default"
           />
         </KpiGrid>
       )}

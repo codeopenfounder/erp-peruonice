@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
+import { createCierreArqueo } from "@/actions/arqueos";
 
 export async function POST(request: Request) {
   try {
@@ -37,6 +38,22 @@ export async function POST(request: Request) {
           .from("cash_registers")
           .update({ current_opening_id: null })
           .eq("id", body.cash_register_id);
+
+        // Auto-generate cierre arqueo (fire-and-forget)
+        createCierreArqueo({
+          tenantId: ctx.tenantId,
+          cashRegisterId: body.cash_register_id,
+          openingId: body.opening_id,
+          openedBy: ctx.userId,
+          closedBy: body.closed_by || ctx.userId,
+          closedByName: body.closed_by_name || null,
+          openingAmount: body.opening_amount ?? 0,
+          closingAmount: body.closing_amount,
+          expectedAmount: body.expected_amount ?? 0,
+          difference: body.difference ?? 0,
+          notes: body.notes || null,
+          denominationCounts: body.denomination_counts || {},
+        }).catch(() => {}); // Best-effort, don't block heartbeat response
       } else if (body.opening_id) {
         // Register is open — upsert opening record
         await adminClient.from("cash_register_openings").upsert(

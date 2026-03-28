@@ -1,16 +1,14 @@
 "use client";
 
-import { DollarSign, Landmark, Users } from "lucide-react";
+import { DollarSign } from "lucide-react";
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import { MetricCard } from "@/components/dashboard/shared/metric-card";
-import { useSalesKPIs, useAttendance } from "@/hooks/queries/use-kpi";
-import { useGastosKPIs } from "@/hooks/queries/use-gastos";
+import { useSalesKPIs } from "@/hooks/queries/use-kpi";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TransactionsCard } from "./transactions-card";
 import { VentasChart } from "./ventas-chart";
 import { HourlyChart } from "./hourly-chart";
 import { PaymentTypeChart } from "./payment-type-chart";
-import { AfluenciaSection } from "./afluencia-section";
 
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-PE", {
@@ -21,24 +19,16 @@ const formatCurrency = (value: number) =>
 
 export function VentasPanel() {
   const { filters } = useDashboardFilters();
-  const { data: sales, isLoading: salesLoading } = useSalesKPIs(filters);
-  const { data: gastos, isLoading: gastosLoading } = useGastosKPIs(
-    filters.date_from
-  );
-  const { data: attendance, isLoading: attLoading } = useAttendance(filters);
-
-  const isLoading = salesLoading || gastosLoading || attLoading;
+  const { data: sales, isLoading } = useSalesKPIs(filters);
 
   return (
     <div className="space-y-6">
       {/* KPI Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading ? (
-          <>
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-[88px] rounded-xl" />
-            ))}
-          </>
+          Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-[88px] rounded-xl" />
+          ))
         ) : (
           <>
             <MetricCard
@@ -51,22 +41,6 @@ export function VentasPanel() {
               description="vs. periodo anterior"
             />
             <TransactionsCard data={sales} isLoading={isLoading} />
-            <MetricCard
-              title="Asistentes"
-              value={attendance?.total_entries ?? 0}
-              icon={Users}
-              variant="accent"
-              prevValue={attendance?.prev_total_entries}
-              currentValue={attendance?.total_entries}
-              description="vs. periodo anterior"
-            />
-            <MetricCard
-              title="Cajas Abiertas"
-              value={`${gastos?.open_registers ?? 0} / ${gastos?.total_registers ?? 0}`}
-              icon={Landmark}
-              variant="warning"
-              description="Registradoras activas"
-            />
           </>
         )}
       </div>
@@ -78,10 +52,7 @@ export function VentasPanel() {
       </div>
 
       {/* Charts Row 2 */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <PaymentTypeChart />
-        <AfluenciaSection />
-      </div>
+      <PaymentTypeChart />
     </div>
   );
 }

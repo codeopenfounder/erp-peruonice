@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import {
   BarChart,
   Bar,
@@ -10,6 +11,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { ChartCard } from "@/components/dashboard/shared/chart-card";
+import { ChartExportButton } from "@/components/dashboard/shared/chart-export-button";
 import type { ProductRankingItem } from "@/types/kpi";
 
 const formatCurrency = (value: number) =>
@@ -43,30 +45,45 @@ function CustomTooltip({
         {formatCurrency(item.total_revenue)}
       </p>
       <p className="text-xs text-muted-foreground">
-        {item.units_sold} uds. vendidas
+        {item.units_sold} uds. · Costo: {formatCurrency(item.cost_price ?? 0)}
       </p>
       <p className="text-xs text-muted-foreground">
-        {item.pct_of_total.toFixed(1)}% del total
+        {item.pct_of_total.toFixed(1)}% del total · Margen: {formatCurrency(item.margin ?? 0)}
       </p>
     </div>
   );
 }
 
+const TOP_EXPORT_COLS = [
+  { header: "Producto", key: "product_name", width: 24 },
+  { header: "SKU", key: "product_sku", width: 12 },
+  { header: "Uds. Vendidas", key: "units_sold", width: 12, format: (v: unknown) => Number(v || 0).toFixed(0) },
+  { header: "Ingresos (S/)", key: "total_revenue", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "Costo Unit. (S/)", key: "cost_price", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "Margen (S/)", key: "margin", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "% del Total", key: "pct_of_total", width: 10, format: (v: unknown) => Number(v || 0).toFixed(1) + "%" },
+];
+
 interface TopProductsChartProps {
   data: ProductRankingItem[];
   isLoading: boolean;
   isFetching: boolean;
+  dateRange: { from: string; to: string };
 }
 
 export function TopProductsChart({
   data,
   isLoading,
   isFetching,
+  dateRange,
 }: TopProductsChartProps) {
+  const chartRef = useRef<HTMLDivElement>(null);
   const chartData = data.map((item) => ({
     ...item,
     shortName: truncate(item.product_name, 20),
   }));
+
+  const getData = useCallback(() => chartData as unknown as Record<string, unknown>[], [chartData]);
 
   return (
     <ChartCard
@@ -75,7 +92,17 @@ export function TopProductsChart({
       isFetching={isFetching}
       isEmpty={!chartData.length}
       height={400}
+      action={
+        <ChartExportButton
+          chartTitle="Top 10 Productos"
+          dateRange={dateRange}
+          columns={TOP_EXPORT_COLS}
+          getData={getData}
+          chartRef={chartRef}
+        />
+      }
     >
+      <div ref={chartRef}>
       <ResponsiveContainer width="100%" height={400}>
         <BarChart
           data={chartData}
@@ -109,6 +136,7 @@ export function TopProductsChart({
           />
         </BarChart>
       </ResponsiveContainer>
+      </div>
     </ChartCard>
   );
 }

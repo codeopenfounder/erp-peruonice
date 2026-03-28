@@ -4,14 +4,13 @@ import {
   DollarSign,
   Receipt,
   TrendingUp,
-  MonitorSmartphone,
+  Banknote,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { KpiGrid } from "@/components/kpi/kpi-grid";
 import { MetricCard } from "./shared/metric-card";
 import { useDashboardFilters } from "./dashboard-filters-provider";
-import { useSalesKPIs } from "@/hooks/queries/use-kpi";
-import { useGastosKPIs } from "@/hooks/queries/use-gastos";
+import { useSalesKPIs, useExpensesSummary } from "@/hooks/queries/use-kpi";
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-PE", {
@@ -23,9 +22,9 @@ const fmt = (v: number) =>
 export function DashboardSummary() {
   const { filters } = useDashboardFilters();
   const { data: sales, isLoading: loadingSales } = useSalesKPIs(filters);
-  const { data: gastos, isLoading: loadingGastos } = useGastosKPIs();
+  const { data: expenses, isLoading: loadingExpenses } = useExpensesSummary();
 
-  const isLoading = loadingSales || loadingGastos;
+  const isLoading = loadingSales || loadingExpenses;
 
   if (isLoading) {
     return (
@@ -67,11 +66,13 @@ export function DashboardSummary() {
         description="Gasto promedio por cliente"
       />
       <MetricCard
-        title="Cajas Abiertas"
-        value={`${gastos?.open_registers ?? 0} / ${gastos?.total_registers ?? 0}`}
-        icon={MonitorSmartphone}
-        variant="default"
-        description="Registradoras activas"
+        title="Gastos del Periodo"
+        value={fmt(expenses?.total_expense_amount ?? 0)}
+        icon={Banknote}
+        variant="danger"
+        currentValue={expenses?.total_expense_amount}
+        prevValue={expenses?.prev_expense_amount}
+        description="Egresos totales"
       />
     </KpiGrid>
   );

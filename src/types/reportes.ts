@@ -9,6 +9,7 @@ export interface ReportFilters {
   payment_method?: string
   cash_register_id?: string
   category_id?: string
+  entity_type?: string
 }
 
 // --- Report 1: Sabana General de Ventas ---
@@ -127,4 +128,46 @@ export interface ReportMeta {
   color: ReportColor
   area: string
   comingSoon?: boolean
+}
+
+export interface KardexInventarioRow {
+  tipo: string
+  sku: string
+  nombre: string
+  categoria: string
+  qty_venta: number
+  qty_cortesia: number
+  qty_merma: number
+  qty_perdida: number
+  qty_rotura: number
+  qty_consumo_staff: number
+  qty_ajuste: number
+  qty_transferencia: number
+  qty_nc_retorno: number
+  qty_ingreso: number
+  qty_salida: number
+  total_movimientos: number
+  stock_teorico: number
+  stock_fisico: number
+  diferencia: number
+  fecha_ultimo_conteo: string
+  costo_unitario: number
+  valor_stock: number
+}
+
+export interface InventarioValorizadoV2Row {
+  tipo: string
+  sku: string
+  nombre: string
+  categoria: string
+  stock_actual: number
+  stock_minimo: number
+  costo_unitario: number
+  valor_total: number
+  estado_stock: string
+  total_ingresos: number
+  total_salidas: number
+  cambio_neto: number
+  fecha_ultimo_conteo: string
+  stock_ultimo_conteo: number
 }

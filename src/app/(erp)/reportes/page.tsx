@@ -9,6 +9,7 @@ import {
   Tag,
   Package,
   ScanLine,
+  ClipboardList,
 } from "lucide-react"
 import { PageHeader } from "@/components/ui/page-header"
 import { ReportHubCard } from "@/components/reportes/report-hub-card"
@@ -19,6 +20,7 @@ import { ControlCajaReport } from "@/components/reportes/reports/control-caja-re
 import { RendimientoPromosReport } from "@/components/reportes/reports/rendimiento-promos-report"
 import { InventarioValorizadoReport } from "@/components/reportes/reports/inventario-valorizado-report"
 import { TraficoVsEntradasReport } from "@/components/reportes/reports/trafico-vs-entradas-report"
+import { KardexInventarioReport } from "@/components/reportes/reports/kardex-inventario-report"
 import type { ReportColor } from "@/types/reportes"
 import type { LucideIcon } from "lucide-react"
 
@@ -89,6 +91,14 @@ const REPORTS: ReportCard[] = [
     area: "Operaciones",
     color: "slate",
   },
+  {
+    id: "kardex-inventario",
+    icon: ClipboardList,
+    title: "Kardex de Inventario",
+    description: "Desglose de movimientos por producto: ventas, mermas, cortesias, ajustes. Stock teorico vs fisico.",
+    area: "Inventario",
+    color: "blue",
+  },
 ]
 
 export default function ReportesPage() {
@@ -144,6 +154,10 @@ export default function ReportesPage() {
       />
       <TraficoVsEntradasReport
         open={activeReport === "trafico-asistentes"}
+        onOpenChange={(open) => !open && setActiveReport(null)}
+      />
+      <KardexInventarioReport
+        open={activeReport === "kardex-inventario"}
         onOpenChange={(open) => !open && setActiveReport(null)}
       />
     </div>

@@ -1,10 +1,7 @@
-export type TimeGranularity = "hourly" | "daily" | "monthly";
-
 export interface DashboardFilters {
   date_from: string;
   date_to: string;
   branch_id?: string;
-  granularity: TimeGranularity;
 }
 
 export interface SalesSummary {
@@ -28,6 +25,7 @@ export interface HourlySalesPoint {
   hour_of_day: number;
   revenue: number;
   tx_count: number;
+  products_sold: number;
 }
 
 export interface ProductRankingItem {
@@ -38,6 +36,8 @@ export interface ProductRankingItem {
   total_revenue: number;
   pct_of_total: number;
   avg_unit_price: number;
+  cost_price: number;
+  margin: number;
 }
 
 export interface OperationalLeaks {
@@ -71,6 +71,13 @@ export interface InventoryHealth {
   breakage_value: number;
   staff_consumption_movements: number;
   staff_consumption_value: number;
+  waste_units: number;
+  shrinkage_units: number;
+  breakage_units: number;
+  staff_consumption_units: number;
+  total_loss_value: number;
+  loss_pct_of_sales: number;
+  loss_pct_of_transactions: number;
 }
 
 export interface DailyTrendPoint {
@@ -95,6 +102,9 @@ export interface AttendanceSummary {
   active_sessions: number;
   avg_dwell_minutes: number;
   prev_total_entries: number;
+  entries_sold: number;
+  prev_entries_sold: number;
+  no_show_rate: number;
 }
 
 export interface HourlyAttendancePoint {
@@ -102,4 +112,19 @@ export interface HourlyAttendancePoint {
   entries: number;
   scan_count: number;
   occupancy_pct: number;
+  entries_sold: number;
 }
+
+export interface ExpensesSummary {
+  total_expense_amount: number;
+  expense_count: number;
+  prev_expense_amount: number;
+  prev_expense_count: number;
+}
+
+export interface ExpensesTrendPoint {
+  expense_date: string;
+  total_amount: number;
+  movement_count: number;
+}
+

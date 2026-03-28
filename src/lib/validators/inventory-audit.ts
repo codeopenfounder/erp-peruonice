@@ -14,6 +14,7 @@ export const createAuditSchema = z.object({
     difference: z.coerce.number(),
     cost_impact: z.coerce.number(),
   })).min(1, "Debe incluir al menos un item"),
+  responsible_id: z.string().uuid().optional(),
 });
 
 export type CreateAuditSchemaType = z.infer<typeof createAuditSchema>;

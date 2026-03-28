@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useCallback } from "react";
 import {
   AreaChart,
   Area,
@@ -12,6 +13,7 @@ import {
 import { format, parseISO } from "date-fns";
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import { ChartCard } from "@/components/dashboard/shared/chart-card";
+import { ChartExportButton } from "@/components/dashboard/shared/chart-export-button";
 import { useDailyTrend } from "@/hooks/queries/use-kpi";
 
 const formatCurrency = (value: number) =>
@@ -44,11 +46,20 @@ function CustomTooltip({
   );
 }
 
+const TREND_EXPORT_COLS = [
+  { header: "Fecha", key: "date", width: 14 },
+  { header: "Ingresos (S/)", key: "total_revenue", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
+  { header: "Transacciones", key: "transaction_count", width: 14 },
+  { header: "Ticket Promedio (S/)", key: "avg_ticket", width: 16, format: (v: unknown) => Number(v || 0).toFixed(2) },
+];
+
 export function VentasChart() {
   const { filters } = useDashboardFilters();
+  const chartRef = useRef<HTMLDivElement>(null);
   const { data, isLoading, isFetching } = useDailyTrend(filters);
 
   const isSingleDay = filters.date_from === filters.date_to;
+  const getData = useCallback(() => (data || []) as unknown as Record<string, unknown>[], [data]);
 
   return (
     <ChartCard
@@ -56,12 +67,24 @@ export function VentasChart() {
       isLoading={isLoading}
       isFetching={isFetching}
       isEmpty={!data?.length}
+      action={
+        !isSingleDay ? (
+          <ChartExportButton
+            chartTitle="Tendencia de Ventas"
+            dateRange={{ from: filters.date_from, to: filters.date_to }}
+            columns={TREND_EXPORT_COLS}
+            getData={getData}
+            chartRef={chartRef}
+          />
+        ) : undefined
+      }
     >
       {isSingleDay ? (
         <div className="flex h-[300px] items-center justify-center text-sm text-muted-foreground">
           Selecciona un rango de fechas para ver la tendencia
         </div>
       ) : (
+        <div ref={chartRef}>
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart
             data={data}
@@ -104,6 +127,7 @@ export function VentasChart() {
             />
           </AreaChart>
         </ResponsiveContainer>
+        </div>
       )}
     </ChartCard>
   );

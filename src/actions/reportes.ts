@@ -11,6 +11,8 @@ import type {
   RendimientoPromosRow,
   InventarioValorizadoRow,
   TraficoVsEntradasRow,
+  KardexInventarioRow,
+  InventarioValorizadoV2Row,
 } from "@/types/reportes"
 
 // ---------------------------------------------------------------------------
@@ -201,4 +203,54 @@ export async function getReporteTraficoVsEntradas(
 
   if (error) throw new Error(`Error generando reporte: ${error.message}`)
   return (data ?? []) as TraficoVsEntradasRow[]
+}
+
+// ---------------------------------------------------------------------------
+// Report: Kardex de Inventario
+// ---------------------------------------------------------------------------
+
+export async function getReporteKardexInventario(
+  filters: ReportFilters
+): Promise<KardexInventarioRow[]> {
+  const { tenantId } = await requireReportAccess([
+    "inventario.productos",
+    "inventario.insumos",
+    "inventario.movimientos",
+  ])
+
+  const admin = createAdminClient()
+  const { data, error } = await admin.rpc("fn_report_kardex_inventario", {
+    p_tenant_id: tenantId,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+    p_branch_id: filters.branch_id || null,
+    p_entity_type: filters.entity_type || null,
+  })
+
+  if (error) throw new Error(`Error generando reporte: ${error.message}`)
+  return (data ?? []) as KardexInventarioRow[]
+}
+
+// ---------------------------------------------------------------------------
+// Report: Inventario Valorizado V2
+// ---------------------------------------------------------------------------
+
+export async function getReporteInventarioValorizadoV2(
+  filters: ReportFilters
+): Promise<InventarioValorizadoV2Row[]> {
+  const { tenantId } = await requireReportAccess([
+    "inventario.productos",
+    "inventario.insumos",
+  ])
+
+  const admin = createAdminClient()
+  const { data, error } = await admin.rpc("fn_report_inventario_valorizado_v2", {
+    p_tenant_id: tenantId,
+    p_branch_id: filters.branch_id || null,
+    p_date_from: filters.date_from,
+    p_date_to: filters.date_to,
+  })
+
+  if (error) throw new Error(`Error generando reporte: ${error.message}`)
+  return (data ?? []) as InventarioValorizadoV2Row[]
 }

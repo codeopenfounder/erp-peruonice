@@ -416,7 +416,7 @@ export async function createAudit(input: unknown) {
   } catch (e) {
     return { success: false as const, error: (e as Error).message };
   }
-  const { branch_id, notes, items } = parsed.data;
+  const { branch_id, notes, items, responsible_id } = parsed.data;
 
   // Get branch name
   let branchName = "";
@@ -442,7 +442,7 @@ export async function createAudit(input: unknown) {
       items_audited,
       items_adjusted,
       total_discrepancy_value,
-      audited_by: userId,
+      audited_by: responsible_id || userId,
       notes: notes || null,
       decided_at: new Date().toISOString(),
     })
@@ -505,13 +505,13 @@ export async function createAudit(input: unknown) {
       reason: `Auditoria de inventario — ${diff > 0 ? "sobrante" : "faltante"}`,
       notes: notes || null,
       branch_id,
-      created_by: userId,
+      created_by: responsible_id || userId,
     });
   }
 
   void notifyModuleAction({
     tenantId,
-    actorId: userId,
+    actorId: responsible_id || userId,
     moduleCodes: AUDIT_MODULES,
     title: "Auditoria de inventario registrada",
     message: `Se registro una auditoria en sede "${branchName}" con ${items_audited} items (${items_adjusted} con diferencia). Impacto: S/ ${total_discrepancy_value.toFixed(2)}.`,

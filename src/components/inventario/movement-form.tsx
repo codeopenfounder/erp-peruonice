@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
-import { Package, FlaskConical, Check, Scale } from "lucide-react";
+import { Package, FlaskConical, Check, Scale, ShieldCheck, ShieldX, Loader2 as PinLoader } from "lucide-react";
+import { validatePinAction } from "@/actions/pin-validation";
 import { DECIMAL_UNITS, SUNAT_UNITS_OF_MEASURE } from "@/lib/constants/sunat";
 import {
   createInventoryMovementSchema,
@@ -43,6 +44,7 @@ const MOVEMENT_TYPES = [
   { value: "adjustment", label: "Ajuste" },
   { value: "income", label: "Ingreso" },
   { value: "outcome", label: "Egreso" },
+  { value: "cortesia", label: "Cortesia" },
 ] as const;
 
 export function MovementForm() {
@@ -53,6 +55,50 @@ export function MovementForm() {
   const [selectedEntitySku, setSelectedEntitySku] = useState("");
   const [selectedEntityUom, setSelectedEntityUom] = useState("NIU");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // PIN authorization state
+  const [pin, setPin] = useState("");
+  const [pinValid, setPinValid] = useState(false);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinUserName, setPinUserName] = useState<string | null>(null);
+  const [pinUserCargo, setPinUserCargo] = useState<string | null>(null);
+  const [pinUserId, setPinUserId] = useState<string | null>(null);
+  const pinRef = useRef<HTMLInputElement>(null);
+
+  // Auto-validate PIN at 4 digits
+  useEffect(() => {
+    if (pin.length !== 4) {
+      setPinValid(false);
+      setPinError(null);
+      setPinUserName(null);
+      setPinUserCargo(null);
+      setPinUserId(null);
+      return;
+    }
+    let cancelled = false;
+    setPinLoading(true);
+    setPinError(null);
+    validatePinAction(pin).then((result) => {
+      if (cancelled) return;
+      setPinLoading(false);
+      if (!result.valid) { setPinError(result.error || "PIN invalido"); return; }
+      const cargo = result.cargo || "";
+      if (cargo !== "gerente" && cargo !== "supervisor") {
+        setPinError("Solo gerentes o supervisores pueden autorizar");
+        return;
+      }
+      setPinValid(true);
+      setPinUserId(result.user_id || null);
+      setPinUserName(result.user_name || null);
+      setPinUserCargo(cargo);
+    }).catch(() => {
+      if (cancelled) return;
+      setPinLoading(false);
+      setPinError("Error de conexion");
+    });
+    return () => { cancelled = true; };
+  }, [pin]);
 
   const createMutation = useCreateInventoryMovement();
   const { data: branches } = useBranchesForSelect();
@@ -157,12 +203,17 @@ export function MovementForm() {
   };
 
   const onSubmit = async (data: CreateInventoryMovementSchemaType) => {
+    if (!pinValid || !pinUserId) {
+      toast.error("Se requiere autorizacion por PIN");
+      return;
+    }
     const payload: Record<string, unknown> = {
       entity_type: data.entity_type,
       entity_id: data.entity_id,
       quantity: data.quantity,
       movement_type: data.movement_type,
       branch_id: data.branch_id,
+      responsible_id: pinUserId,
     };
     if (data.reason) payload.reason = data.reason;
     if (data.notes) payload.notes = data.notes;
@@ -441,10 +492,42 @@ export function MovementForm() {
                 <span className="text-sm text-foreground">{selectedBranchName || "\u2014"}</span>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              El stock se actualizara inmediatamente
-              una vez aprobado.
-            </p>
+            {/* PIN authorization */}
+            <div className="mt-4">
+              <Label className="text-sm font-medium">PIN de autorizacion *</Label>
+              <p className="text-xs text-muted-foreground mb-2">Ingresa el PIN de un gerente o supervisor</p>
+              <div className="relative max-w-[200px]">
+                <Input
+                  ref={pinRef}
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                  placeholder="••••"
+                  className={`text-center font-mono tracking-[0.5em] ${
+                    pinValid
+                      ? "border-emerald-500/50 bg-emerald-500/5"
+                      : pinError
+                        ? "border-destructive/50 bg-destructive/5"
+                        : ""
+                  }`}
+                />
+                {pinLoading && <PinLoader className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+                {pinValid && <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-emerald-500" />}
+                {pinError && !pinLoading && <ShieldX className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-destructive" />}
+              </div>
+              {pinValid && pinUserName && (
+                <div className="mt-2 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2">
+                  <ShieldCheck className="size-3.5 text-emerald-500 shrink-0" />
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{pinUserName}</span>
+                  <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">{pinUserCargo}</span>
+                </div>
+              )}
+              {pinError && !pinLoading && (
+                <p className="mt-1.5 text-xs text-destructive">{pinError}</p>
+              )}
+            </div>
           </div>
         )}
       </MultiStepForm>
@@ -463,7 +546,7 @@ export function MovementForm() {
             Siguiente
           </Button>
         ) : (
-          <Button type="button" disabled={createMutation.isPending} onClick={handleSubmit(onSubmit)}>
+          <Button type="button" disabled={createMutation.isPending || !pinValid} onClick={handleSubmit(onSubmit)}>
             {createMutation.isPending ? "Creando..." : "Crear movimiento"}
           </Button>
         )}

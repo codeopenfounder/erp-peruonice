@@ -1,6 +1,6 @@
 "use client";
 
-import { Trash2, Search, User, Zap, BarChart3, ArrowDown, ArrowUp, ArrowLeftRight, ShoppingCart, RotateCcw } from "lucide-react";
+import { Trash2, Search, User, Zap, BarChart3, ArrowDown, ArrowUp, ArrowLeftRight, ShoppingCart, RotateCcw, Gift } from "lucide-react";
 
 const MOVEMENT_TYPE_CONFIG: Record<string, { label: string; icon: React.ElementType; className: string }> = {
   waste: { label: "Merma", icon: Trash2, className: "bg-red-500/15 text-red-500 border-red-500/30" },
@@ -13,6 +13,7 @@ const MOVEMENT_TYPE_CONFIG: Record<string, { label: string; icon: React.ElementT
   outcome: { label: "Egreso", icon: ArrowUp, className: "bg-red-500/15 text-red-500 border-red-500/30" },
   sale: { label: "Venta", icon: ShoppingCart, className: "bg-cyan-500/15 text-cyan-500 border-cyan-500/30" },
   nc_return: { label: "Devolucion NC", icon: RotateCcw, className: "bg-orange-500/15 text-orange-500 border-orange-500/30" },
+  cortesia: { label: "Cortesia", icon: Gift, className: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
 };
 
 interface MovementTypeBadgeProps {

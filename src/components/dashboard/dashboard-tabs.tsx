@@ -7,18 +7,20 @@ import {
   TabsContent,
 } from "@/components/ui/tabs";
 import { useDashboardFilters } from "./dashboard-filters-provider";
-import { BarChart3, ShoppingBag, ShieldAlert, Warehouse } from "lucide-react";
+import { BarChart3, ShoppingBag, Users, ShieldAlert, Banknote } from "lucide-react";
 
 import { VentasPanel } from "./ventas/ventas-panel";
 import { ProductosPanel } from "./productos/productos-panel";
+import { AsistenciaPanel } from "./asistencia/asistencia-panel";
 import { OperativaPanel } from "./operativa/operativa-panel";
-import { InventarioPanel } from "./inventario/inventario-panel";
+import { GastosPanel } from "./gastos/gastos-panel";
 
 const TABS = [
   { value: "ventas", label: "Ventas", icon: BarChart3 },
   { value: "productos", label: "Productos", icon: ShoppingBag },
+  { value: "asistencia", label: "Asistencia", icon: Users },
   { value: "operativa", label: "Eficiencia", icon: ShieldAlert },
-  { value: "inventario", label: "Inventario", icon: Warehouse },
+  { value: "gastos", label: "Gastos", icon: Banknote },
 ] as const;
 
 export function DashboardTabs() {
@@ -46,12 +48,16 @@ export function DashboardTabs() {
         <ProductosPanel />
       </TabsContent>
 
+      <TabsContent value="asistencia" className="mt-4">
+        <AsistenciaPanel />
+      </TabsContent>
+
       <TabsContent value="operativa" className="mt-4">
         <OperativaPanel />
       </TabsContent>
 
-      <TabsContent value="inventario" className="mt-4">
-        <InventarioPanel />
+      <TabsContent value="gastos" className="mt-4">
+        <GastosPanel />
       </TabsContent>
     </Tabs>
   );

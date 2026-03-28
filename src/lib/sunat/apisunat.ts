@@ -130,36 +130,22 @@ function buildDocumentPayload(
     cliente_tipo_de_documento: customerDocType,
     cliente_numero_de_documento: invoice.customer_document_number || "00000000",
     cliente_denominacion: invoice.customer_name || "CLIENTE VARIOS",
-    items: invoice.items.map((item) => {
-      const isGratuito = item.total === 0 && item.subtotal === 0;
-
-      if (isGratuito) {
-        // Transferencia gratuita (SUNAT: Gravado - Retiro por premio, código 11)
-        const valorRef = item.reference_value || 0.01;
+    items: invoice.items
+      .filter((item) => !(item.total === 0 && item.subtotal === 0))
+      .map((item) => {
+        const valorUnitario = item.subtotal / item.quantity;
         return {
           unidad_de_medida: item.unit_of_measure,
           descripcion: item.description,
           cantidad: String(item.quantity),
-          valor_unitario: valorRef.toFixed(6),
-          porcentaje_igv: "18",
-          codigo_tipo_afectacion_igv: "11",
-          nombre_tributo: "GRA",
+          valor_unitario: valorUnitario.toFixed(6),
+          porcentaje_igv: String(item.igv_rate),
+          codigo_tipo_afectacion_igv:
+            item.tax_type === "gravado" ? "10" : item.tax_type === "exonerado" ? "20" : "30",
+          nombre_tributo: item.tax_type === "gravado" ? "IGV"
+            : item.tax_type === "exonerado" ? "EXO" : "INA",
         };
-      }
-
-      const valorUnitario = item.subtotal / item.quantity;
-      return {
-        unidad_de_medida: item.unit_of_measure,
-        descripcion: item.description,
-        cantidad: String(item.quantity),
-        valor_unitario: valorUnitario.toFixed(6),
-        porcentaje_igv: String(item.igv_rate),
-        codigo_tipo_afectacion_igv:
-          item.tax_type === "gravado" ? "10" : item.tax_type === "exonerado" ? "20" : "30",
-        nombre_tributo: item.tax_type === "gravado" ? "IGV"
-          : item.tax_type === "exonerado" ? "EXO" : "INA",
-      };
-    }),
+      }),
     total: invoice.total.toFixed(2),
   };
 

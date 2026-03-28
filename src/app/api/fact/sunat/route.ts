@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     // Verify invoice belongs to tenant
     const { data: invoice, error: invError } = await adminClient
       .from("invoices")
-      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id")
+      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, opening_id")
       .eq("id", invoiceId)
       .eq("tenant_id", ctx.tenantId)
       .single();
@@ -59,7 +59,22 @@ export async function POST(request: Request) {
     const seriesCode = seriesData?.series_code || "B001";
 
     if (action === "void") {
+      // Enforce same-day restriction (Peru timezone UTC-5, no DST)
+      const peruNow = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Lima" }));
+      const peruToday = `${peruNow.getFullYear()}-${String(peruNow.getMonth() + 1).padStart(2, "0")}-${String(peruNow.getDate()).padStart(2, "0")}`;
+      const invoiceCreated = new Date(invoice.created_at);
+      const invoicePeruDate = new Date(invoiceCreated.toLocaleString("en-US", { timeZone: "America/Lima" }));
+      const invoiceDateStr = `${invoicePeruDate.getFullYear()}-${String(invoicePeruDate.getMonth() + 1).padStart(2, "0")}-${String(invoicePeruDate.getDate()).padStart(2, "0")}`;
+
+      if (invoiceDateStr !== peruToday) {
+        return NextResponse.json(
+          { success: false, error: "Solo se puede anular comprobantes emitidos hoy" },
+          { status: 400 },
+        );
+      }
+
       const reason = body?.reason || "Anulacion de la operacion";
+      const authorization = body?.authorization;
       const result = await voidDocument(
         factConfig,
         invoice.document_type,
@@ -71,8 +86,176 @@ export async function POST(request: Request) {
       if (result.success) {
         await adminClient
           .from("invoices")
-          .update({ status: "voided" })
+          .update({
+            status: "voided",
+            authorized_by: authorization?.authorizer_id || ctx.userId,
+            authorized_by_name: authorization?.authorizer_name || ctx.userName,
+            authorized_at: new Date().toISOString(),
+          })
           .eq("id", invoiceId);
+
+        // Audit trail
+        await adminClient.from("audit_log").insert({
+          tenant_id: ctx.tenantId,
+          user_id: ctx.userId,
+          action: "void_invoice",
+          resource: "invoices",
+          resource_id: invoiceId,
+          new_data: {
+            reason,
+            authorized_by: authorization?.authorizer_id || ctx.userId,
+            authorizer_name: authorization?.authorizer_name || ctx.userName,
+            self_authorized: authorization?.self_authorized ?? true,
+          },
+        });
+
+        // --- Return stock and create refund movements ---
+        const { data: voidItems } = await adminClient
+          .from("invoice_items")
+          .select("product_id, supply_id, quantity, description, is_cortesia")
+          .eq("invoice_id", invoiceId);
+
+        // Get branch from cash register
+        let voidBranchId: string | null = null;
+        if (invoice.cash_register_id) {
+          const { data: reg } = await adminClient
+            .from("cash_registers")
+            .select("branch_id")
+            .eq("id", invoice.cash_register_id)
+            .single();
+          voidBranchId = reg?.branch_id || null;
+        }
+
+        // Get product metadata (type, kind) to skip services and handle composites
+        const voidProductIds = (voidItems || []).filter(i => i.product_id).map(i => i.product_id!);
+        const voidServiceIds = new Set<string>();
+        const voidCompositeIds = new Set<string>();
+        const voidRecipeMap = new Map<string, { supply_id: string; quantity_needed: number }[]>();
+
+        if (voidProductIds.length > 0) {
+          const { data: prodMeta } = await adminClient
+            .from("products")
+            .select("id, type, product_kind")
+            .in("id", voidProductIds);
+          for (const p of prodMeta || []) {
+            if (p.type === "service") voidServiceIds.add(p.id);
+            if (p.product_kind === "composite") voidCompositeIds.add(p.id);
+          }
+          if (voidCompositeIds.size > 0) {
+            const { data: recipes } = await adminClient
+              .from("recipe_items")
+              .select("product_id, supply_id, quantity_needed")
+              .in("product_id", Array.from(voidCompositeIds));
+            for (const r of recipes || []) {
+              if (!voidRecipeMap.has(r.product_id)) voidRecipeMap.set(r.product_id, []);
+              voidRecipeMap.get(r.product_id)!.push({ supply_id: r.supply_id, quantity_needed: Number(r.quantity_needed) });
+            }
+          }
+        }
+
+        // Increment stock for each item
+        for (const item of voidItems || []) {
+          if (item.product_id && !voidServiceIds.has(item.product_id)) {
+            await adminClient.rpc("fn_increment_stock", {
+              p_product_id: item.product_id,
+              p_quantity: item.quantity,
+            });
+          }
+          if (item.supply_id && !item.product_id) {
+            await adminClient.rpc("fn_increment_supply_stock", {
+              p_supply_id: item.supply_id,
+              p_quantity: item.quantity,
+            });
+          }
+        }
+
+        // Create inventory movements (nc_return)
+        for (const item of voidItems || []) {
+          if (item.product_id && voidServiceIds.has(item.product_id)) continue;
+
+          if (item.product_id && voidCompositeIds.has(item.product_id)) {
+            for (const ri of voidRecipeMap.get(item.product_id) || []) {
+              await adminClient.from("inventory_movements").insert({
+                tenant_id: ctx.tenantId,
+                entity_type: "supply",
+                entity_id: ri.supply_id,
+                quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
+                movement_type: "nc_return",
+                reason: `Anulacion: ${item.description}`,
+                branch_id: voidBranchId,
+                invoice_id: invoiceId,
+                created_by: ctx.userId,
+              });
+            }
+            continue;
+          }
+
+          if (item.supply_id && !item.product_id) {
+            await adminClient.from("inventory_movements").insert({
+              tenant_id: ctx.tenantId,
+              entity_type: "supply",
+              entity_id: item.supply_id,
+              quantity: item.quantity,
+              movement_type: "nc_return",
+              reason: `Anulacion: ${item.description}`,
+              branch_id: voidBranchId,
+              invoice_id: invoiceId,
+              created_by: ctx.userId,
+            });
+            continue;
+          }
+
+          if (item.product_id) {
+            await adminClient.from("inventory_movements").insert({
+              tenant_id: ctx.tenantId,
+              entity_type: "product",
+              entity_id: item.product_id,
+              quantity: item.quantity,
+              movement_type: "nc_return",
+              reason: `Anulacion: ${item.description}`,
+              branch_id: voidBranchId,
+              invoice_id: invoiceId,
+              created_by: ctx.userId,
+            });
+          }
+        }
+
+        // Create refund cash_register_movement
+        // Use the invoice's own opening_id (the opening where the sale was made)
+        const refundOpeningId = invoice.opening_id;
+        if (refundOpeningId) {
+          // Ensure opening exists in Supabase (may not be synced yet from POI Fact)
+          const { data: openingExists } = await adminClient
+            .from("cash_register_openings")
+            .select("id")
+            .eq("id", refundOpeningId)
+            .maybeSingle();
+
+          if (!openingExists) {
+            try {
+              await adminClient.from("cash_register_openings").insert({
+                id: refundOpeningId,
+                tenant_id: ctx.tenantId,
+                cash_register_id: invoice.cash_register_id || null,
+                opened_by: ctx.userId,
+                opening_amount: 0,
+                status: "open",
+              });
+            } catch { /* may exist from concurrent request */ }
+          }
+
+          await adminClient.from("cash_register_movements").insert({
+            tenant_id: ctx.tenantId,
+            opening_id: refundOpeningId,
+            type: "refund",
+            amount: invoice.total,
+            description: `Anulacion: ${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`,
+            invoice_id: invoiceId,
+            payment_method: "cash",
+            created_by: ctx.userId,
+            cash_register_id: invoice.cash_register_id,
+          });
+        }
       }
 
       return NextResponse.json({

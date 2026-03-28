@@ -3,9 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   DollarSign,
-  TrendingUp,
   TrendingDown,
-  Monitor,
   FileSpreadsheet,
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -36,7 +34,6 @@ const PAGE_SIZE = 50;
 
 const TYPE_OPTIONS = [
   { value: "sale", label: "Venta" },
-  { value: "income", label: "Ingreso" },
   { value: "expense", label: "Egreso" },
   { value: "refund", label: "Devolucion" },
   { value: "petty_cash_in", label: "Caja Chica" },
@@ -96,25 +93,11 @@ export default function MovimientosCajaPage() {
       bg: "bg-primary/10",
     },
     {
-      label: "Ingresos hoy",
-      value: formatCurrency(kpis?.total_cash_in_today ?? 0),
-      icon: TrendingUp,
-      color: "text-success",
-      bg: "bg-success/10",
-    },
-    {
       label: "Egresos hoy",
       value: formatCurrency(kpis?.total_cash_out_today ?? 0),
       icon: TrendingDown,
       color: "text-destructive",
       bg: "bg-destructive/10",
-    },
-    {
-      label: "Cajas abiertas",
-      value: `${kpis?.open_registers ?? 0} / ${kpis?.total_registers ?? 0}`,
-      icon: Monitor,
-      color: "text-foreground",
-      bg: "bg-secondary",
     },
   ];
 
@@ -133,13 +116,13 @@ export default function MovimientosCajaPage() {
 
       {/* KPIs */}
       {isLoadingKPIs ? (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-2">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[88px] rounded-xl" />
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-2">
           {KPI_ITEMS.map((item, i) => {
             const Icon = item.icon;
             return (

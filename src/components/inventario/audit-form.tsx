@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import { Loader2, ShieldCheck, ShieldX } from "lucide-react";
+import { validatePinAction } from "@/actions/pin-validation";
 import { DECIMAL_UNITS } from "@/lib/constants/sunat";
 import { MultiStepForm } from "@/components/ui/multi-step-form";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,37 @@ export function AuditForm() {
 
   // Step 2 confirm dialog
   const [confirmOpen, setConfirmOpen] = useState(false);
+
+  // PIN authorization state
+  const [pin, setPin] = useState("");
+  const [pinValid, setPinValid] = useState(false);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [pinUserName, setPinUserName] = useState<string | null>(null);
+  const [pinUserCargo, setPinUserCargo] = useState<string | null>(null);
+  const [pinUserId, setPinUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pin.length !== 4) {
+      setPinValid(false); setPinError(null); setPinUserName(null); setPinUserCargo(null); setPinUserId(null);
+      return;
+    }
+    let cancelled = false;
+    setPinLoading(true); setPinError(null);
+    validatePinAction(pin).then((result) => {
+      if (cancelled) return;
+      setPinLoading(false);
+      if (!result.valid) { setPinError(result.error || "PIN invalido"); return; }
+      const cargo = result.cargo || "";
+      if (cargo !== "gerente" && cargo !== "supervisor") {
+        setPinError("Solo gerentes o supervisores pueden autorizar");
+        return;
+      }
+      setPinValid(true); setPinUserId(result.user_id || null);
+      setPinUserName(result.user_name || null); setPinUserCargo(cargo);
+    }).catch(() => { if (!cancelled) { setPinLoading(false); setPinError("Error de conexion"); } });
+    return () => { cancelled = true; };
+  }, [pin]);
 
   const { data: branches } = useBranchesForSelect();
   const { data: categories } = useCategories();
@@ -228,6 +260,7 @@ export function AuditForm() {
       branch_id: branchId,
       items,
       notes: notes || undefined,
+      responsible_id: pinUserId || undefined,
     });
 
     if (result.success) {
@@ -477,6 +510,40 @@ export function AuditForm() {
                 rows={3}
               />
             </div>
+
+            {/* PIN authorization */}
+            <div className="space-y-2 pt-2 border-t">
+              <Label>PIN de autorizacion *</Label>
+              <p className="text-xs text-muted-foreground">Ingresa el PIN de un gerente o supervisor para aprobar</p>
+              <div className="relative max-w-[200px]">
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  maxLength={4}
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                  placeholder="••••"
+                  className={cn(
+                    "flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm text-center font-mono tracking-[0.5em] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                    pinValid && "border-emerald-500/50 bg-emerald-500/5",
+                    pinError && !pinLoading && "border-destructive/50 bg-destructive/5",
+                  )}
+                />
+                {pinLoading && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-muted-foreground" />}
+                {pinValid && <ShieldCheck className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-emerald-500" />}
+                {pinError && !pinLoading && <ShieldX className="absolute right-3 top-1/2 -translate-y-1/2 size-4 text-destructive" />}
+              </div>
+              {pinValid && pinUserName && (
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 max-w-xs">
+                  <ShieldCheck className="size-3.5 text-emerald-500 shrink-0" />
+                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{pinUserName}</span>
+                  <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">{pinUserCargo}</span>
+                </div>
+              )}
+              {pinError && !pinLoading && (
+                <p className="text-xs text-destructive">{pinError}</p>
+              )}
+            </div>
           </div>
         )}
       </MultiStepForm>
@@ -503,7 +570,7 @@ export function AuditForm() {
           <Button
             type="button"
             onClick={handleSubmit}
-            disabled={createMutation.isPending}
+            disabled={createMutation.isPending || !pinValid}
           >
             {createMutation.isPending
               ? "Guardando..."

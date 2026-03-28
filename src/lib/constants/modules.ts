@@ -45,6 +45,7 @@ export const ALL_MODULES: ModuleDefinition[] = [
   // Finanzas
   { code: "finanzas.caja", label: "Caja", description: "Estado de cajas registradoras", area: "finanzas", availableActions: ["view"] },
   { code: "finanzas.cierres", label: "Cierres de Caja", description: "Historial de cierres de caja", area: "finanzas", availableActions: ["view"] },
+  { code: "finanzas.arqueos", label: "Arqueos", description: "Arqueos y auditorías de caja", area: "finanzas", availableActions: ["view", "create"] },
   { code: "finanzas.movimientos", label: "Movimientos", description: "Movimientos de caja diarios", area: "finanzas", availableActions: ["view"] },
   // Gastos
   { code: "gastos.fondos", label: "Fondos de Gastos", description: "Gestión de fondos de gastos", area: "gastos", availableActions: ["view"] },

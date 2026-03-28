@@ -12,7 +12,8 @@ export type InventoryMovementType =
   | "income"
   | "outcome"
   | "sale"
-  | "nc_return";
+  | "nc_return"
+  | "cortesia";
 
 export type EntityType = "product" | "supply";
 
@@ -66,6 +67,7 @@ export interface MovementKPIs {
   adjustment_count: number;
   income_count: number;
   sale_count: number;
+  cortesia_count: number;
 }
 
 export const MOVEMENT_TYPE_CONFIG: Record<
@@ -82,4 +84,5 @@ export const MOVEMENT_TYPE_CONFIG: Record<
   outcome: { label: "Egreso", icon: "ArrowUp", color: "red" },
   sale: { label: "Venta", icon: "ShoppingCart", color: "emerald" },
   nc_return: { label: "Devolución NC", icon: "RotateCcw", color: "orange" },
+  cortesia: { label: "Cortesia", icon: "Gift", color: "emerald" },
 };

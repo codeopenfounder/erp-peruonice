@@ -291,7 +291,7 @@ export async function createInventoryMovement(input: unknown) {
   } catch (e) {
     return { success: false as const, error: (e as Error).message };
   }
-  const { entity_type, entity_id, quantity, movement_type, reason, notes, branch_id } =
+  const { entity_type, entity_id, quantity, movement_type, reason, notes, branch_id, responsible_id } =
     parsed.data;
 
   // Get entity info
@@ -335,7 +335,7 @@ export async function createInventoryMovement(input: unknown) {
       reason: reason || null,
       notes: notes || null,
       branch_id: resolvedBranchId,
-      created_by: userId,
+      created_by: responsible_id || userId,
     });
 
   if (movError) return { success: false as const, error: movError.message };
@@ -354,7 +354,7 @@ export async function createInventoryMovement(input: unknown) {
 
   void notifyModuleAction({
     tenantId,
-    actorId: userId,
+    actorId: responsible_id || userId,
     moduleCodes: MOVEMENT_MODULES,
     title: "Movimiento de inventario registrado",
     message: `Se registro un movimiento (${movement_type}) de ${quantity} unidades del ${entityLabel} "${entityName}" (${entitySku}).`,
@@ -375,7 +375,7 @@ export async function createInventoryMovement(input: unknown) {
 export async function getMovementKPIs(): Promise<MovementKPIs> {
   const { supabase, tenantId } = await getTenantId();
 
-  const [total, waste, shrinkage, adjustment, income, sale] = await Promise.all([
+  const [total, waste, shrinkage, adjustment, income, sale, cortesia] = await Promise.all([
     supabase
       .from("inventory_movements")
       .select("id", { count: "exact", head: true })
@@ -405,6 +405,11 @@ export async function getMovementKPIs(): Promise<MovementKPIs> {
       .select("id", { count: "exact", head: true })
       .eq("tenant_id", tenantId)
       .eq("movement_type", "sale"),
+    supabase
+      .from("inventory_movements")
+      .select("id", { count: "exact", head: true })
+      .eq("tenant_id", tenantId)
+      .eq("movement_type", "cortesia"),
   ]);
 
   return {
@@ -414,5 +419,6 @@ export async function getMovementKPIs(): Promise<MovementKPIs> {
     adjustment_count: adjustment.count ?? 0,
     income_count: income.count ?? 0,
     sale_count: sale.count ?? 0,
+    cortesia_count: cortesia.count ?? 0,
   };
 }

@@ -27,7 +27,7 @@ export function ChartCard({
   className,
 }: ChartCardProps) {
   return (
-    <Card className={cn("relative overflow-hidden", className)}>
+    <Card className={cn("relative overflow-hidden animate-in fade-in-0 slide-in-from-bottom-3 duration-500", className)}>
       <CardHeader className="flex flex-row items-center justify-between pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}

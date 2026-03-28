@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 
 export type FontSize = "sm" | "md" | "lg";
 export type Locale = "es" | "en";
@@ -20,16 +21,28 @@ interface ThemeState {
   setQuickAccess: (quickAccess: string[]) => void;
 }
 
-export const useThemeStore = create<ThemeState>()((set) => ({
-  fontSize: "md",
-  locale: "es",
-  theme: "dark",
-  pushEnabled: false,
-  quickAccess: [],
+export const useThemeStore = create<ThemeState>()(
+  persist(
+    (set) => ({
+      fontSize: "md",
+      locale: "es",
+      theme: "light",
+      pushEnabled: false,
+      quickAccess: [],
 
-  setFontSize: (fontSize) => set({ fontSize }),
-  setLocale: (locale) => set({ locale }),
-  setTheme: (theme) => set({ theme }),
-  setPushEnabled: (pushEnabled) => set({ pushEnabled }),
-  setQuickAccess: (quickAccess) => set({ quickAccess }),
-}));
+      setFontSize: (fontSize) => set({ fontSize }),
+      setLocale: (locale) => set({ locale }),
+      setTheme: (theme) => set({ theme }),
+      setPushEnabled: (pushEnabled) => set({ pushEnabled }),
+      setQuickAccess: (quickAccess) => set({ quickAccess }),
+    }),
+    {
+      name: "poi-theme",
+      partialize: (state) => ({
+        theme: state.theme,
+        fontSize: state.fontSize,
+        locale: state.locale,
+      }),
+    }
+  )
+);

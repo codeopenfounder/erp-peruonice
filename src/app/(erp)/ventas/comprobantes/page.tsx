@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   DollarSign,
   FileText,
@@ -34,6 +35,16 @@ import type { InvoiceFilters } from "@/types/invoice";
 const PAGE_SIZE = 50;
 
 export default function ComprobantesPage() {
+  return (
+    <Suspense>
+      <ComprobantesContent />
+    </Suspense>
+  );
+}
+
+function ComprobantesContent() {
+  const searchParams = useSearchParams();
+
   // Filter state
   const [search, setSearch] = useState("");
   const [docType, setDocType] = useState<string | null>(null);
@@ -46,6 +57,14 @@ export default function ComprobantesPage() {
 
   // Dialog state
   const [detailId, setDetailId] = useState<string | null>(null);
+
+  // Auto-open modal from URL params (e.g. from Transacciones "Ver comprobante")
+  useEffect(() => {
+    const urlId = searchParams.get("id");
+    if (urlId) setDetailId(urlId);
+    const urlSearch = searchParams.get("search");
+    if (urlSearch) setSearch(urlSearch);
+  }, [searchParams]);
 
   // Reset page on filter change
   useEffect(() => {

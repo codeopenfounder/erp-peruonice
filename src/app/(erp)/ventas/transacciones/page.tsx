@@ -242,7 +242,7 @@ function TransaccionesPage() {
             </button>
             <button
               type="button"
-              onClick={() => window.location.href = `/ventas/comprobantes?search=${row.original.series_code}-${String(row.original.correlative_number).padStart(8, "0")}`}
+              onClick={() => window.location.href = `/ventas/comprobantes?id=${row.original.id}`}
               className="rounded-md p-1.5 text-muted-foreground hover:text-blue-600 hover:bg-blue-500/10 transition-colors"
               title="Ver comprobante"
             >

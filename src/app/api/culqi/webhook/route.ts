@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import crypto from "crypto";
 
-// Characters for access code generation (unambiguous charset)
+// Characters for access code generation (unambiguous charset, same as poi-lector)
 const ACCESS_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 function generateAccessCode(): string {
@@ -13,73 +12,39 @@ function generateAccessCode(): string {
   return code;
 }
 
-function verifySignature(
-  payload: string,
-  signature: string | null,
-  secret: string
-): boolean {
-  if (!signature) return false;
-  try {
-    const computed = crypto
-      .createHmac("sha256", secret)
-      .update(payload)
-      .digest("hex");
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(computed)
-    );
-  } catch {
-    return false;
-  }
-}
-
 export async function POST(request: Request) {
   try {
     const payload = await request.text();
+    console.log("[Culqi Webhook] Received:", payload.substring(0, 500));
 
-    // Verify webhook signature if secret is configured
-    const webhookSecret = process.env.CULQI_WEBHOOK_SECRET;
-    if (webhookSecret) {
-      const signature = request.headers.get("X-Culqi-Signature");
-      if (!verifySignature(payload, signature, webhookSecret)) {
-        return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-      }
+    // Parse the event wrapper
+    const event = JSON.parse(payload);
+
+    // CRITICAL: Culqi sends `data` as a JSON STRING, not an object
+    // Must double-parse: first the event body, then the data field
+    let chargeData: Record<string, unknown>;
+    if (typeof event.data === "string") {
+      chargeData = JSON.parse(event.data);
+    } else {
+      chargeData = event.data || event;
     }
 
-    const body = JSON.parse(payload);
-    const adminClient = createAdminClient();
+    const eventType = event.type || "";
+    console.log("[Culqi Webhook] Event type:", eventType, "Charge ID:", chargeData.id);
 
-    // Culqi sends different event structures. Extract relevant data.
-    // The key fields: object type, status, metadata
-    const eventType = body.type || body.event || "";
-    const data = body.data || body.object || body;
-
-    // Look for our payment_link_id in metadata
-    const metadata = data.metadata || {};
-    const paymentLinkId = metadata.payment_link_id;
-
-    if (!paymentLinkId) {
-      // Try to find by culqi_link_id
-      const culqiLinkId = data.link_id || data.id;
-      if (!culqiLinkId) {
-        return NextResponse.json({ received: true, message: "No payment_link_id found" });
-      }
-
-      // Look up by culqi_link_id
-      const { data: link } = await adminClient
-        .from("payment_links")
-        .select("id")
-        .eq("culqi_link_id", culqiLinkId)
-        .single();
-
-      if (!link) {
-        return NextResponse.json({ received: true, message: "Link not found" });
-      }
-
-      return await processPayment(adminClient, link.id, data);
+    // Only process successful charges
+    if (eventType === "charge.creation.failed") {
+      // Try to find and mark as failed
+      await handleFailed(chargeData);
+      return NextResponse.json({ received: true, message: "Charge failed noted" });
     }
 
-    return await processPayment(adminClient, paymentLinkId, data);
+    if (eventType !== "charge.creation.succeeded") {
+      return NextResponse.json({ received: true, message: `Unhandled event: ${eventType}` });
+    }
+
+    // Process successful payment
+    return await processSuccessfulCharge(chargeData);
   } catch (err) {
     console.error("[Culqi Webhook] Error:", err);
     // Always return 200 to prevent Culqi from retrying
@@ -87,44 +52,78 @@ export async function POST(request: Request) {
   }
 }
 
-async function processPayment(
-  adminClient: ReturnType<typeof createAdminClient>,
-  paymentLinkId: string,
-  data: Record<string, unknown>
-) {
+async function processSuccessfulCharge(charge: Record<string, unknown>) {
+  const adminClient = createAdminClient();
+  const chargeId = String(charge.id || "");
+  const amountCents = Number(charge.amount || charge.current_amount || 0);
+  const amountSoles = amountCents / 100;
+  const description = String(charge.description || "");
+  const customerEmail = String(charge.email || "");
+
+  // Strategy to find the payment_link:
+  // 1. Check metadata.payment_link_id (if charge was created via our API)
+  // 2. Match by description (we embed payment_link_id in the link description)
+  // 3. Match by amount + status=pending (fallback)
+
+  let paymentLinkId: string | null = null;
+
+  // Strategy 1: metadata
+  const metadata = (charge.metadata || {}) as Record<string, unknown>;
+  if (metadata.payment_link_id) {
+    paymentLinkId = String(metadata.payment_link_id);
+  }
+
+  // Strategy 2: search description for UUID pattern
+  if (!paymentLinkId && description) {
+    const uuidMatch = description.match(
+      /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+    );
+    if (uuidMatch) {
+      const { data: found } = await adminClient
+        .from("payment_links")
+        .select("id")
+        .eq("id", uuidMatch[0])
+        .eq("status", "pending")
+        .single();
+      if (found) paymentLinkId = found.id;
+    }
+  }
+
+  // Strategy 3: match by amount and pending status (most recent)
+  if (!paymentLinkId) {
+    const { data: candidates } = await adminClient
+      .from("payment_links")
+      .select("id")
+      .eq("status", "pending")
+      .eq("amount", amountSoles)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    if (candidates && candidates.length > 0) {
+      paymentLinkId = candidates[0].id;
+    }
+  }
+
+  if (!paymentLinkId) {
+    console.log("[Culqi Webhook] No matching payment_link found for charge", chargeId);
+    return NextResponse.json({ received: true, message: "No matching link found" });
+  }
+
   // Fetch the payment link
-  const { data: link, error } = await adminClient
+  const { data: link } = await adminClient
     .from("payment_links")
     .select("*")
     .eq("id", paymentLinkId)
     .single();
 
-  if (error || !link) {
+  if (!link) {
     return NextResponse.json({ received: true, message: "Link not found" });
   }
 
-  // Already processed
+  // Idempotency: already processed
   if (link.status === "paid") {
     return NextResponse.json({ received: true, message: "Already processed" });
   }
 
-  const status = String(data.status || data.state || "").toLowerCase();
-
-  // Handle expired/cancelled
-  if (status === "expired" || status === "cancelled") {
-    await adminClient
-      .from("payment_links")
-      .update({ status: status as "expired" | "cancelled" })
-      .eq("id", paymentLinkId);
-    return NextResponse.json({ received: true });
-  }
-
-  // Only process paid status
-  if (status !== "paid" && status !== "completed" && status !== "captured") {
-    return NextResponse.json({ received: true, message: `Unhandled status: ${status}` });
-  }
-
-  const culqiOrderId = String(data.id || data.order_id || "");
   const now = new Date().toISOString();
 
   try {
@@ -148,7 +147,7 @@ async function processPayment(
             document_type: link.customer_document_type || "dni",
             document_number: link.customer_document_number,
             legal_name: link.customer_name,
-            email: link.customer_email,
+            email: link.customer_email || customerEmail || null,
             phone: link.customer_phone,
           })
           .select("id")
@@ -157,7 +156,9 @@ async function processPayment(
       }
     }
 
-    // 2. Get a boleta series for this tenant
+    // 2. Create invoice (boleta with card payment)
+    let invoiceId: string | null = null;
+
     const { data: series } = await adminClient
       .from("invoice_series")
       .select("id")
@@ -167,27 +168,21 @@ async function processPayment(
       .limit(1)
       .single();
 
-    let invoiceId: string | null = null;
-
     if (series) {
-      // Get next correlative
       const { data: corrData } = await adminClient.rpc("fn_next_correlative", {
         p_series_id: series.id,
       });
       const correlative = corrData as number;
 
-      // Calculate tax (Peru: prices include IGV)
       const total = Number(link.amount);
       const opGravada = Math.round((total / 1.18) * 100) / 100;
       const igvTotal = Math.round((total - opGravada) * 100) / 100;
 
-      // Peru date
       const peruNow = new Date(
         new Date().toLocaleString("en-US", { timeZone: "America/Lima" })
       );
       const issueDate = `${peruNow.getFullYear()}-${String(peruNow.getMonth() + 1).padStart(2, "0")}-${String(peruNow.getDate()).padStart(2, "0")}`;
 
-      // Create invoice
       const { data: inv } = await adminClient
         .from("invoices")
         .insert({
@@ -210,7 +205,7 @@ async function processPayment(
           currency: link.currency || "PEN",
           issue_date: issueDate,
           branch_id: link.branch_id,
-          notes: `Pago online via Culqi - ${link.description || ""}`,
+          notes: `Pago online Culqi - ${chargeId}`,
           created_at: now,
         })
         .select("id")
@@ -218,8 +213,8 @@ async function processPayment(
 
       invoiceId = inv?.id || null;
 
+      // Create invoice item
       if (invoiceId && link.product_id) {
-        // Get product details for invoice item
         const { data: prod } = await adminClient
           .from("products")
           .select("name, sale_price, tax_type, igv_rate, cost_price")
@@ -260,45 +255,33 @@ async function processPayment(
     // 3. Create reservation (if product and date specified)
     let reservationId: string | null = null;
     if (link.product_id && link.reservation_date && link.slot_start) {
-      const scheduleQuery = await adminClient
-        .from("service_schedules")
-        .select("id")
-        .eq("product_id", link.product_id)
-        .eq("branch_id", link.branch_id)
-        .eq("is_active", true)
-        .limit(1)
-        .single();
+      const accessCode = generateAccessCode();
 
-      if (scheduleQuery.data) {
-        const accessCode = generateAccessCode();
-
-        const { data: resData } = await adminClient.rpc(
-          "fn_create_reservation",
-          {
-            p_tenant_id: link.tenant_id,
-            p_product_id: link.product_id,
-            p_branch_id: link.branch_id,
-            p_customer_id: customerId,
-            p_customer_name: link.customer_name,
-            p_invoice_id: invoiceId,
-            p_date: link.reservation_date,
-            p_slot_start: link.slot_start,
-            p_slot_end: link.slot_end || link.slot_start,
-            p_quantity: link.quantity || 1,
-            p_created_by: link.created_by,
-            p_notes: `Reserva online - Culqi ${culqiOrderId}`,
-          }
-        );
-
-        reservationId = resData as string | null;
-
-        // Set access code on reservation
-        if (reservationId) {
-          await adminClient
-            .from("reservations")
-            .update({ access_code: accessCode })
-            .eq("id", reservationId);
+      const { data: resData } = await adminClient.rpc(
+        "fn_create_reservation",
+        {
+          p_tenant_id: link.tenant_id,
+          p_product_id: link.product_id,
+          p_branch_id: link.branch_id,
+          p_customer_id: customerId,
+          p_customer_name: link.customer_name,
+          p_invoice_id: invoiceId,
+          p_date: link.reservation_date,
+          p_slot_start: link.slot_start,
+          p_slot_end: link.slot_end || link.slot_start,
+          p_quantity: link.quantity || 1,
+          p_created_by: link.created_by,
+          p_notes: `Reserva online - Culqi ${chargeId}`,
         }
+      );
+
+      reservationId = resData as string | null;
+
+      if (reservationId) {
+        await adminClient
+          .from("reservations")
+          .update({ access_code: accessCode })
+          .eq("id", reservationId);
       }
     }
 
@@ -307,7 +290,7 @@ async function processPayment(
       .from("payment_links")
       .update({
         status: "paid",
-        culqi_order_id: culqiOrderId,
+        culqi_order_id: chargeId,
         invoice_id: invoiceId,
         reservation_id: reservationId,
         paid_at: now,
@@ -331,6 +314,7 @@ async function processPayment(
       // Non-critical
     }
 
+    console.log("[Culqi Webhook] Processed:", { paymentLinkId, invoiceId, reservationId });
     return NextResponse.json({
       received: true,
       processed: true,
@@ -339,12 +323,28 @@ async function processPayment(
     });
   } catch (err) {
     console.error("[Culqi Webhook] Processing error:", err);
-    // Mark as failed
     await adminClient
       .from("payment_links")
       .update({ status: "failed" })
       .eq("id", paymentLinkId);
     return NextResponse.json({ received: true, error: "Processing failed" });
+  }
+}
+
+async function handleFailed(charge: Record<string, unknown>) {
+  const adminClient = createAdminClient();
+  const description = String(charge.description || "");
+
+  // Try to find by description UUID
+  const uuidMatch = description.match(
+    /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+  );
+  if (uuidMatch) {
+    await adminClient
+      .from("payment_links")
+      .update({ status: "failed" })
+      .eq("id", uuidMatch[0])
+      .eq("status", "pending");
   }
 }
 

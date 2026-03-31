@@ -118,6 +118,10 @@ export async function POST(request: Request) {
       });
     }
 
+    // Embed payment_link_id in the concept for webhook matching
+    // (CulqiLink API does not support metadata field)
+    const concept = `${description} [${paymentLink.id}]`;
+
     const culqiResponse = await fetch("https://api.culqi.com/v2/links", {
       method: "POST",
       headers: {
@@ -125,15 +129,12 @@ export async function POST(request: Request) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        name: `Reserva ${product.name} - ${customer_name}`,
         amount: amountCents,
-        currency: "PEN",
-        description,
-        single_use: true,
-        metadata: {
-          payment_link_id: paymentLink.id,
-          tenant_id: profile.tenant_id,
-        },
+        currency_code: "PEN",
+        concept,
+        limit_uses: 1,
+        payment_methods: ["tarjeta", "yape"],
+        expiration_date: Math.floor(Date.now() / 1000) + 86400, // 24h UNIX timestamp
       }),
     });
 
@@ -153,12 +154,14 @@ export async function POST(request: Request) {
 
     const culqiData = await culqiResponse.json();
 
+    const culqiUrl = culqiData.url || `https://express.culqi.com/pago/${culqiData.code || culqiData.id}`;
+
     // Update payment_link with Culqi data
     await adminClient
       .from("payment_links")
       .update({
         culqi_link_id: culqiData.id,
-        culqi_link_url: culqiData.url || `https://link.culqi.com/${culqiData.id}`,
+        culqi_link_url: culqiUrl,
       })
       .eq("id", paymentLink.id);
 
@@ -166,7 +169,7 @@ export async function POST(request: Request) {
       success: true,
       data: {
         id: paymentLink.id,
-        culqi_link_url: culqiData.url || `https://link.culqi.com/${culqiData.id}`,
+        culqi_link_url: culqiUrl,
         amount: totalAmount,
         description,
       },

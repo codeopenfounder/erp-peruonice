@@ -10,6 +10,7 @@ import {
   ArrowLeftRight,
   ClipboardCheck,
   FileSearch,
+  Link2,
   Monitor,
   CheckCircle,
   Wallet,
@@ -67,6 +68,7 @@ export const SIDEBAR_NAVIGATION: NavSection[] = [
       { label: "Horarios", href: "/reservas/horarios", icon: CalendarClock, module: "reservas.horarios" },
       { label: "Reservas", href: "/reservas/reservas", icon: CalendarCheck, module: "reservas.reservas" },
       { label: "Capacidad", href: "/reservas/capacidad", icon: Users2, module: "reservas.capacidad" },
+      { label: "Links de Pago", href: "/reservas/links", icon: Link2, module: "reservas.links" },
     ],
   },
   {

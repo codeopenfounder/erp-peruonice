@@ -35,6 +35,7 @@ export const ALL_MODULES: ModuleDefinition[] = [
   { code: "reservas.horarios", label: "Horarios", description: "Horarios de atención de servicios", area: "reservas", availableActions: ["view", "create", "edit", "delete"] },
   { code: "reservas.reservas", label: "Reservas", description: "Gestión de reservas de clientes", area: "reservas", availableActions: ["view", "create", "edit", "delete"] },
   { code: "reservas.capacidad", label: "Capacidad", description: "Grupos de capacidad compartida entre servicios", area: "reservas", availableActions: ["view", "create", "edit", "delete"] },
+  { code: "reservas.links", label: "Links de Pago", description: "Links de pago online para reservas (Culqi)", area: "reservas", availableActions: ["view", "create"] },
   // Inventario
   { code: "inventario.productos", label: "Productos", description: "Catálogo de productos e inventario", area: "inventario", availableActions: ["view", "create", "edit", "delete"] },
   { code: "inventario.servicios", label: "Servicios", description: "Catálogo de servicios ofrecidos", area: "inventario", availableActions: ["view", "create", "edit", "delete"] },

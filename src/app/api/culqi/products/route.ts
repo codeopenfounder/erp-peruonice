@@ -27,7 +27,7 @@ export async function GET(request: Request) {
     // A product is schedulable if it has a service_schedule for this branch
     let query = supabase
       .from("products")
-      .select("id, name, sale_price, type, is_schedulable")
+      .select("id, name, unit_price, type, is_schedulable")
       .eq("tenant_id", profile.tenant_id)
       .eq("is_active", true)
       .eq("is_schedulable", true)
@@ -59,7 +59,7 @@ export async function GET(request: Request) {
       products: filtered.map((p) => ({
         id: p.id,
         name: p.name,
-        sale_price: Number(p.sale_price),
+        unit_price: Number(p.unit_price),
       })),
     });
   } catch (err) {

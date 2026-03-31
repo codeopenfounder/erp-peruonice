@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     // Get product info for the link description
     const { data: product } = await adminClient
       .from("products")
-      .select("name, sale_price")
+      .select("name, unit_price")
       .eq("id", product_id)
       .single();
 
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       .single();
 
     const qty = quantity || 1;
-    const totalAmount = Number(product.sale_price) * qty;
+    const totalAmount = Number(product.unit_price) * qty;
     const amountCents = Math.round(totalAmount * 100);
 
     const description = `${product.name} x${qty} - ${reservation_date} ${slot_start}-${slot_end || ""} - ${branch?.name || ""}`;

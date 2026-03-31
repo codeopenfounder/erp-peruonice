@@ -217,12 +217,12 @@ async function processSuccessfulCharge(charge: Record<string, unknown>) {
       if (invoiceId && link.product_id) {
         const { data: prod } = await adminClient
           .from("products")
-          .select("name, sale_price, tax_type, igv_rate, cost_price")
+          .select("name, unit_price, tax_type, igv_rate, cost_price")
           .eq("id", link.product_id)
           .single();
 
         if (prod) {
-          const unitPrice = Number(prod.sale_price);
+          const unitPrice = Number(prod.unit_price);
           const qty = link.quantity || 1;
           const lineTotal = unitPrice * qty;
           const lineSubtotal =

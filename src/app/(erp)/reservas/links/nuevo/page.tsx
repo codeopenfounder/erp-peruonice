@@ -30,7 +30,7 @@ import { toast } from "sonner";
 interface SchedulableProduct {
   id: string;
   name: string;
-  sale_price: number;
+  unit_price: number;
 }
 
 interface AvailableSlot {
@@ -71,7 +71,7 @@ export default function NuevoLinkPage() {
 
   const selectedProduct = products.find((p) => p.id === productId);
   const totalAmount = selectedProduct
-    ? selectedProduct.sale_price * quantity
+    ? selectedProduct.unit_price * quantity
     : 0;
 
   const todayStr = new Date(
@@ -288,7 +288,7 @@ export default function NuevoLinkPage() {
                         <SelectContent>
                           {products.map((p) => (
                             <SelectItem key={p.id} value={p.id}>
-                              {p.name} - S/ {p.sale_price.toFixed(2)}
+                              {p.name} - S/ {p.unit_price.toFixed(2)}
                             </SelectItem>
                           ))}
                         </SelectContent>

@@ -127,6 +127,7 @@ export async function POST(request: Request) {
       headers: {
         Authorization: `Bearer ${culqiKey}`,
         "Content-Type": "application/json",
+        "x-culqi-product": "link",
       },
       body: JSON.stringify({
         amount: amountCents,

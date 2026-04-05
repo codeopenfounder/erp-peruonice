@@ -13,13 +13,14 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PinAuthDialog } from "@/components/ui/pin-auth-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { CategorySidebar } from "@/components/inventario/category-sidebar";
 import { CategoryDialog } from "@/components/inventario/category-dialog";
 import { TagDialog } from "@/components/inventario/tag-dialog";
 import { getProductColumns } from "@/components/inventario/product-columns";
 import { AddStockDialog } from "@/components/inventario/add-stock-dialog";
-import { useProducts, useProductKPIs, useDeleteProduct, usePendingProductApprovals } from "@/hooks/queries/use-products";
+import { useProducts, useProductKPIs, useDeleteProduct } from "@/hooks/queries/use-products";
 import { useCategories, useDeleteCategory, useDeleteTag } from "@/hooks/queries/use-categories";
 import { useBranchesForSelect } from "@/hooks/queries/use-branches";
 import { exportToExcel } from "@/lib/utils/export-excel";
@@ -66,13 +67,9 @@ export default function ProductosPage() {
   const { data: kpis, isLoading: isLoadingKPIs } = useProductKPIs();
   const { data: categories, isLoading: isLoadingCategories } = useCategories("product");
   const { data: branches } = useBranchesForSelect();
-  const { data: pendingApprovals } = usePendingProductApprovals();
   const deleteMutation = useDeleteProduct();
   const deleteCategoryMutation = useDeleteCategory();
   const deleteTagMutation = useDeleteTag();
-
-  const pendingDeleteCatIds = new Set(pendingApprovals?.pendingDeleteCategoryIds ?? []);
-  const pendingDeleteTagIds = new Set(pendingApprovals?.pendingDeleteTagIds ?? []);
 
   const hasEdit = canEdit("inventario.productos");
   const hasDelete = canDelete("inventario.productos");
@@ -102,6 +99,10 @@ export default function ProductosPage() {
     setDeleteId(null);
   };
 
+  const handlePinAuthorizedDelete = async () => {
+    await handleDelete();
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteConfirm) return;
     const result = deleteConfirm.type === "category"
@@ -124,13 +125,13 @@ export default function ProductosPage() {
       columns: [
         { header: "SKU", key: "sku", width: 14 },
         { header: "Nombre", key: "name", width: 30 },
-        { header: "Categorias", key: "categories", width: 20, format: (v) => ((v as { name: string }[])?.map((c) => c.name).join(", ")) || "—" },
+        { header: "Categorías", key: "categories", width: 20, format: (v) => ((v as { name: string }[])?.map((c) => c.name).join(", ")) || "—" },
         { header: "Precio", key: "unit_price", width: 12, format: (v) => Number(v).toFixed(2) },
         { header: "Costo", key: "cost_price", width: 12, format: (v) => v ? Number(v).toFixed(2) : "—" },
         { header: "Moneda", key: "currency", width: 8 },
         { header: "Stock", key: "stock_quantity", width: 10 },
         { header: "Stock min.", key: "min_stock", width: 12, format: (v) => v != null ? String(v) : "—" },
-        { header: "Codigo barras", key: "barcode", width: 16, format: (v) => (v as string) || "—" },
+        { header: "Código barras", key: "barcode", width: 16, format: (v) => (v as string) || "—" },
         { header: "Estado", key: "is_active", width: 10, format: (v) => v ? "Activo" : "Inactivo" },
       ],
       data: productData.data as unknown as Record<string, unknown>[],
@@ -181,7 +182,7 @@ export default function ProductosPage() {
           <KpiCard
             title="Stock bajo"
             value={kpis?.low_stock_count ?? 0}
-            description="Por debajo del minimo"
+            description="Por debajo del mínimo"
             icon={AlertTriangle}
             variant="warning"
           />
@@ -193,9 +194,9 @@ export default function ProductosPage() {
             variant="danger"
           />
           <KpiCard
-            title="Categorias"
+            title="Categorías"
             value={kpis?.total_categories ?? 0}
-            description="Categorias activas"
+            description="Categorías activas"
             icon={Layers}
             variant="default"
           />
@@ -206,15 +207,15 @@ export default function ProductosPage() {
       <div className="lg:hidden">
         <Button variant="outline" size="sm" onClick={() => setSidebarOpen(true)}>
           <SlidersHorizontal className="mr-2 size-4" />
-          Categorias y etiquetas
+          Categorías y etiquetas
         </Button>
       </div>
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-[300px] overflow-y-auto p-0">
           <SheetHeader className="px-4 pt-4">
-            <SheetTitle>Categorias y etiquetas</SheetTitle>
-            <SheetDescription>Filtra productos por categoria o etiqueta</SheetDescription>
+            <SheetTitle>Categorías y etiquetas</SheetTitle>
+            <SheetDescription>Filtra productos por categoría o etiqueta</SheetDescription>
           </SheetHeader>
           <div className="px-2 pb-4">
             <CategorySidebar
@@ -231,8 +232,6 @@ export default function ProductosPage() {
               }}
               onDeleteCategory={(id, name) => setDeleteConfirm({ type: "category", id, name })}
               onDeleteTag={(id, name) => setDeleteConfirm({ type: "tag", id, name })}
-              pendingDeleteCategoryIds={pendingDeleteCatIds}
-              pendingDeleteTagIds={pendingDeleteTagIds}
             />
           </div>
         </SheetContent>
@@ -254,8 +253,6 @@ export default function ProductosPage() {
             }}
             onDeleteCategory={(id, name) => setDeleteConfirm({ type: "category", id, name })}
             onDeleteTag={(id, name) => setDeleteConfirm({ type: "tag", id, name })}
-            pendingDeleteCategoryIds={pendingDeleteCatIds}
-            pendingDeleteTagIds={pendingDeleteTagIds}
           />
         </div>
 
@@ -326,13 +323,13 @@ export default function ProductosPage() {
         categoryId={tagCategoryId}
       />
 
-      <ConfirmDialog
+      <PinAuthDialog
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
         title="Eliminar producto"
-        description="Este producto se eliminara permanentemente."
-        onConfirm={handleDelete}
-        variant="danger"
+        description="Este producto se desactivará permanentemente. Ingresa el PIN de un gerente para autorizar."
+        onAuthorized={handlePinAuthorizedDelete}
+        isLoading={deleteMutation.isPending}
       />
 
       {stockProduct && (
@@ -348,11 +345,11 @@ export default function ProductosPage() {
       <ConfirmDialog
         open={!!deleteConfirm}
         onOpenChange={() => setDeleteConfirm(null)}
-        title={deleteConfirm?.type === "category" ? "Eliminar categoria" : "Eliminar etiqueta"}
+        title={deleteConfirm?.type === "category" ? "Eliminar categoría" : "Eliminar etiqueta"}
         description={
           deleteConfirm?.type === "category"
-            ? `Se eliminara la categoria "${deleteConfirm?.name ?? ""}"`
-            : `Se eliminara la etiqueta "${deleteConfirm?.name ?? ""}"`
+            ? `Se eliminará la categoría "${deleteConfirm?.name ?? ""}"`
+            : `Se eliminará la etiqueta "${deleteConfirm?.name ?? ""}"`
         }
         onConfirm={handleConfirmDelete}
         variant="danger"

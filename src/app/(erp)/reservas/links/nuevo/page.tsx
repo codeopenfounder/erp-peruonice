@@ -161,7 +161,7 @@ export default function NuevoLinkPage() {
         toast.error(result.error || "Error al crear link");
       }
     } catch (err) {
-      toast.error("Error de conexion");
+      toast.error("Error de conexión");
     } finally {
       setSubmitting(false);
     }
@@ -503,7 +503,7 @@ export default function NuevoLinkPage() {
                     </div>
                     <div>
                       <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-                        Numero documento
+                        Número documento
                       </label>
                       <Input
                         value={customerDocNumber}

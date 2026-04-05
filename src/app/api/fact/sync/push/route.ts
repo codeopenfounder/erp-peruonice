@@ -375,7 +375,7 @@ export async function POST(request: Request) {
                 type: (ncReturn || ncPriceAdjust) ? "refund" : "sale",
                 amount: inv.total,
                 description: isNc
-                  ? (ncReturn ? "Devolucion NC" : "Ajuste precio NC")
+                  ? (ncReturn ? "Devolución NC" : "Ajuste precio NC")
                   : isNd
                     ? "Ajuste ND"
                     : `Venta ${inv.document_type === "factura" ? "Factura" : "Boleta"}`,
@@ -527,14 +527,14 @@ export async function POST(request: Request) {
             const CORTESIA_LABELS: Record<string, string> = {
               cliente_insatisfecho: "Cliente insatisfecho",
               falla_producto: "Falla de producto",
-              promocion: "Promocion",
+              promocion: "Promoción",
               otro: "Otro",
             };
             const reasonLabel = item.cortesia_reason
               ? (CORTESIA_LABELS[item.cortesia_reason] || item.cortesia_reason)
               : "Sin motivo";
-            const reason = item.is_cortesia ? `Cortesia: ${reasonLabel}` : null;
-            const ncNotes = ncStockReturn ? `NC: ${inv.reference_reason === "01" ? "Anulacion" : inv.reference_reason === "06" ? "Devolucion total" : "Devolucion por item"}` : null;
+            const reason = item.is_cortesia ? `Cortesía: ${reasonLabel}` : null;
+            const ncNotes = ncStockReturn ? `NC: ${inv.reference_reason === "01" ? "Anulación" : inv.reference_reason === "06" ? "Devolución total" : "Devolución por item"}` : null;
 
             // Services → skip (no stock)
             if (item.product_id && serviceIds.has(item.product_id)) continue;

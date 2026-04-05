@@ -43,7 +43,7 @@ export function AnulacionesCard({ data, isLoading }: AnulacionesCardProps) {
                 {data?.voided_count ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">
-                anulaciones y notas de credito
+                anulaciones y notas de crédito
               </p>
             </div>
 

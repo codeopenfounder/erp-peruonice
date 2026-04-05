@@ -342,7 +342,7 @@ export async function createProduct(input: unknown) {
       // Manual barcode — validate EAN-13 format (13 digits with check digit)
       const code = inputBarcode.trim();
       if (!/^\d{13}$/.test(code)) {
-        return { success: false as const, error: "Codigo de barras invalido: debe ser EAN-13 (exactamente 13 digitos)" };
+        return { success: false as const, error: "Código de barras inválido: debe ser EAN-13 (exactamente 13 dígitos)" };
       }
       // Validate check digit (GS1 Modulo 10)
       const d = code.split("").map(Number);
@@ -353,7 +353,7 @@ export async function createProduct(input: unknown) {
       }
       const calculated = (10 - (sum % 10)) % 10;
       if (calculated !== checkDigit) {
-        return { success: false as const, error: `Codigo de barras invalido: el digito de verificacion deberia ser ${calculated}, no ${checkDigit}` };
+        return { success: false as const, error: `Código de barras inválido: el dígito de verificación debería ser ${calculated}, no ${checkDigit}` };
       }
       barcode = code;
 
@@ -442,7 +442,7 @@ export async function createProduct(input: unknown) {
     actorId: userId,
     moduleCodes: getInventoryModules(isService),
     title: `${label.charAt(0).toUpperCase() + label.slice(1)} creado`,
-    message: `Se creo el ${label} "${rest.name}" (${sku}).`,
+    message: `Se creó el ${label} "${rest.name}" (${sku}).`,
     resourceType: "product",
     resourceId: product.id,
     type: "info",
@@ -538,7 +538,7 @@ export async function updateProduct(id: string, input: unknown) {
     actorId: userId,
     moduleCodes: getInventoryModules(isService),
     title: `${label.charAt(0).toUpperCase() + label.slice(1)} actualizado`,
-    message: `Se actualizo el ${label} "${current.name}" (${current.sku}).`,
+    message: `Se actualizó el ${label} "${current.name}" (${current.sku}).`,
     resourceType: "product",
     resourceId: id,
     type: "info",
@@ -584,7 +584,7 @@ export async function deleteProduct(id: string) {
     actorId: userId,
     moduleCodes: getInventoryModules(isService),
     title: `${label.charAt(0).toUpperCase() + label.slice(1)} eliminado`,
-    message: `Se elimino el ${label} "${product.name}" (${product.sku}).`,
+    message: `Se eliminó el ${label} "${product.name}" (${product.sku}).`,
     resourceType: "product",
     resourceId: id,
     type: "info",

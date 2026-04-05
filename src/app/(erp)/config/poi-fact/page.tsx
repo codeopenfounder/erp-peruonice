@@ -395,7 +395,7 @@ function CreateSeriesDialog({
 
   const handleSubmit = async () => {
     if (!/^[A-Z]\d{3}$/.test(seriesCode)) {
-      toast.error("Formato de serie: letra + 3 digitos (ej: F001, B001)");
+      toast.error("Formato de serie: letra + 3 dígitos (ej: F001, B001)");
       return;
     }
     if (!documentType) {
@@ -439,7 +439,7 @@ function CreateSeriesDialog({
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label>Codigo de serie</Label>
+              <Label>Código de serie</Label>
               <Input
                 value={seriesCode}
                 onChange={(e) => setSeriesCode(e.target.value.toUpperCase())}
@@ -447,7 +447,7 @@ function CreateSeriesDialog({
                 maxLength={4}
                 className="font-mono"
               />
-              <p className="text-xs text-muted-foreground">Formato: letra + 3 digitos</p>
+              <p className="text-xs text-muted-foreground">Formato: letra + 3 dígitos</p>
             </div>
             <div className="space-y-2">
               <Label>Tipo de documento</Label>
@@ -573,7 +573,7 @@ function SeriesTab() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Codigo</TableHead>
+            <TableHead>Código</TableHead>
             <TableHead>Tipo</TableHead>
             <TableHead>Correlativo</TableHead>
             <TableHead>Caja</TableHead>
@@ -696,7 +696,7 @@ function CashRegistersTab() {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Codigo</TableHead>
+            <TableHead>Código</TableHead>
             <TableHead>Nombre</TableHead>
             <TableHead>Sede</TableHead>
             <TableHead>Estado</TableHead>
@@ -1097,9 +1097,9 @@ export default function PoiFactPage() {
                 <Wifi className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">3. Configurar conexion</p>
+                <p className="text-sm font-medium">3. Configurar conexión</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Al iniciar, POI Fact se conecta automaticamente a <code className="rounded bg-muted px-1 py-0.5 text-[11px]">erp.peruonice.com</code> para sincronizar datos.
+                  Al iniciar, POI Fact se conecta automáticamente a <code className="rounded bg-muted px-1 py-0.5 text-[11px]">erp.peruonice.com</code> para sincronizar datos.
                 </p>
               </div>
             </div>
@@ -1108,9 +1108,9 @@ export default function PoiFactPage() {
                 <Key className="size-4" />
               </div>
               <div>
-                <p className="text-sm font-medium">4. Iniciar sesion con PIN</p>
+                <p className="text-sm font-medium">4. Iniciar sesión con PIN</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Los cajeros ingresan con su PIN de 4 digitos asignado en la seccion de Cajeros de esta pagina.
+                  Los cajeros ingresan con su PIN de 4 dígitos asignado en la sección de Cajeros de esta página.
                 </p>
               </div>
             </div>

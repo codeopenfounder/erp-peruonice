@@ -38,7 +38,7 @@ export async function POST(request: Request) {
 
     if (!access_code) {
       return NextResponse.json(
-        { success: false, error: "Codigo de acceso requerido" },
+        { success: false, error: "Código de acceso requerido" },
         { status: 400 },
       );
     }

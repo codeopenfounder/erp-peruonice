@@ -123,7 +123,7 @@ function LoginContent() {
           animate="visible"
           className="mb-8 text-center"
         >
-          <img src="/poi-logo.png" alt="Peru On Ice" className="mx-auto h-16 w-auto mb-3" />
+          <img src="/poi-logo.png" alt="Perú On Ice" className="mx-auto h-16 w-auto mb-3" />
           <h1
             className="text-3xl font-bold tracking-[0.15em] text-white"
             style={{

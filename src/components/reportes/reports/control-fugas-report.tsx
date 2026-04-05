@@ -73,7 +73,7 @@ export function ControlFugasReport({ open, onOpenChange }: Props) {
       await exportFlatData({
         filename: `control-fugas-${dateFrom}-a-${dateTo}`,
         sheetName: "Fugas",
-        reportTitle: "Control de Fugas - Anulaciones, Mermas y Cortesias",
+        reportTitle: "Control de Fugas - Anulaciones, Mermas y Cortesías",
         dateRange: { from: dateFrom, to: dateTo },
         columns: COLUMNS,
         data: data as unknown as Record<string, unknown>[],
@@ -94,7 +94,7 @@ export function ControlFugasReport({ open, onOpenChange }: Props) {
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/50">
           <DialogTitle className="text-lg">Control de Fugas</DialogTitle>
           <DialogDescription>
-            Anulaciones, mermas, cortesias y todo el dinero que no ingreso a caja.
+            Anulaciones, mermas, cortesías y todo el dinero que no ingresó a caja.
           </DialogDescription>
         </DialogHeader>
 

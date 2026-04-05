@@ -82,7 +82,7 @@ export function MovementForm() {
     validatePinAction(pin).then((result) => {
       if (cancelled) return;
       setPinLoading(false);
-      if (!result.valid) { setPinError(result.error || "PIN invalido"); return; }
+      if (!result.valid) { setPinError(result.error || "PIN inválido"); return; }
       const cargo = result.cargo || "";
       if (cargo !== "gerente" && cargo !== "supervisor") {
         setPinError("Solo gerentes o supervisores pueden autorizar");
@@ -95,7 +95,7 @@ export function MovementForm() {
     }).catch(() => {
       if (cancelled) return;
       setPinLoading(false);
-      setPinError("Error de conexion");
+      setPinError("Error de conexión");
     });
     return () => { cancelled = true; };
   }, [pin]);
@@ -204,7 +204,7 @@ export function MovementForm() {
 
   const onSubmit = async (data: CreateInventoryMovementSchemaType) => {
     if (!pinValid || !pinUserId) {
-      toast.error("Se requiere autorizacion por PIN");
+      toast.error("Se requiere autorización por PIN");
       return;
     }
     const payload: Record<string, unknown> = {
@@ -435,7 +435,7 @@ export function MovementForm() {
               <Label htmlFor="notes">Notas adicionales (opcional)</Label>
               <Textarea
                 id="notes"
-                placeholder="Informacion adicional..."
+                placeholder="Información adicional..."
                 {...register("notes")}
                 rows={2}
               />
@@ -494,7 +494,7 @@ export function MovementForm() {
             </div>
             {/* PIN authorization */}
             <div className="mt-4">
-              <Label className="text-sm font-medium">PIN de autorizacion *</Label>
+              <Label className="text-sm font-medium">PIN de autorización *</Label>
               <p className="text-xs text-muted-foreground mb-2">Ingresa el PIN de un gerente o supervisor</p>
               <div className="relative max-w-[200px]">
                 <Input

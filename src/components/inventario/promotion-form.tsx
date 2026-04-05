@@ -57,9 +57,9 @@ const COMBO_STEPS = [
 ];
 
 const NORMAL_STEPS = [
-  { title: "Datos basicos" },
+  { title: "Datos básicos" },
   { title: "Requisitos y sede" },
-  { title: "Categorias y etiquetas" },
+  { title: "Categorías y etiquetas" },
   { title: "Tiempo" },
   { title: "Confirmacion" },
 ];
@@ -360,7 +360,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
         : await createMutation.mutateAsync(payload);
 
       if (!result.success) {
-        toast.error(typeof result.error === "string" ? result.error : "Error al guardar la promocion");
+        toast.error(typeof result.error === "string" ? result.error : "Error al guardar la promoción");
         return;
       }
 
@@ -386,8 +386,8 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
   // Step validation messages
   const stepValidationMsg = useMemo(() => {
     if (currentStep === 0 && !canAdvance) {
-      if (isCombo) return "Completa el codigo y nombre";
-      return "Completa el codigo, nombre y valor del descuento";
+      if (isCombo) return "Completa el código y nombre";
+      return "Completa el código, nombre y valor del descuento";
     }
     if (isCombo) {
       if (currentStep === 1 && !canAdvance) {
@@ -402,7 +402,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
       }
     } else {
       if (currentStep === 1 && !canAdvance) return "Selecciona al menos una sede";
-      if (currentStep === 2 && !canAdvance) return "Selecciona al menos una categoria";
+      if (currentStep === 2 && !canAdvance) return "Selecciona al menos una categoría";
       if (currentStep === 3 && !canAdvance) {
         if (watchedValues.valid_from && watchedValues.valid_until && new Date(watchedValues.valid_until) < new Date(watchedValues.valid_from))
           return "\"Valido hasta\" no puede ser anterior a \"Valido desde\"";
@@ -429,19 +429,19 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
           <div className="space-y-4">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label htmlFor="code">Codigo *</Label>
+                <Label htmlFor="code">Código *</Label>
                 <Input id="code" placeholder="PROMO-001" {...register("code")} />
                 {errors.code && <p className="text-xs text-destructive">{errors.code.message}</p>}
               </div>
               <div className="space-y-2">
                 <Label htmlFor="name">Nombre *</Label>
-                <Input id="name" placeholder="Nombre de la promocion" {...register("name")} />
+                <Input id="name" placeholder="Nombre de la promoción" {...register("name")} />
                 {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Descripcion</Label>
-              <Textarea placeholder="Descripcion opcional" rows={2} {...register("description")} />
+              <Label>Descripción</Label>
+              <Textarea placeholder="Descripción opcional" rows={2} {...register("description")} />
             </div>
 
             {/* Combo Toggle */}
@@ -677,18 +677,18 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
           <div className="space-y-5">
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Compra minima (S/.)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="Sin minimo" {...register("min_purchase_amount")} />
+                <Label>Compra mínima (S/.)</Label>
+                <Input type="number" step="0.01" min="0" placeholder="Sin mínimo" {...register("min_purchase_amount")} />
               </div>
               <div className="space-y-2">
-                <Label>Descuento maximo (S/.)</Label>
-                <Input type="number" step="0.01" min="0" placeholder="Sin maximo" {...register("max_discount_amount")} />
+                <Label>Descuento máximo (S/.)</Label>
+                <Input type="number" step="0.01" min="0" placeholder="Sin máximo" {...register("max_discount_amount")} />
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <Label>Cantidad minima</Label>
+                <Label>Cantidad mínima</Label>
                 <Input type="number" min="1" placeholder="Ej: 3 unidades" {...register("min_quantity")} />
               </div>
               <div className="space-y-2">
@@ -747,7 +747,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
           <div className="space-y-4">
             <div className="flex items-center gap-2">
               <FolderOpen className="size-4 text-primary" />
-              <Label className="text-sm font-medium">Categorias aplicables *</Label>
+              <Label className="text-sm font-medium">Categorías aplicables *</Label>
             </div>
             <p className="text-xs text-muted-foreground">
               {appliesTo === "products"
@@ -821,7 +821,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
             )}
 
             {selectedCategories.size === 0 && allCategories.length > 0 && (
-              <p className="text-xs text-destructive">Selecciona al menos una categoria</p>
+              <p className="text-xs text-destructive">Selecciona al menos una categoría</p>
             )}
           </div>
         )}
@@ -847,7 +847,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
               {!watchedValues.valid_from && !watchedValues.valid_until && (
                 <div className="flex items-center gap-2 rounded-lg border border-blue-500/30 bg-blue-500/5 px-3 py-2">
                   <Info className="size-4 text-blue-400 shrink-0" />
-                  <span className="text-xs text-blue-400">Sin fechas = la promocion no expira</span>
+                  <span className="text-xs text-blue-400">Sin fechas = la promoción no expira</span>
                 </div>
               )}
             </div>
@@ -880,9 +880,9 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
         {/* Step: Confirmacion */}
         {currentStep === stepConfirmacion && (
           <div className="space-y-4">
-            <h3 className="text-sm font-medium text-foreground">Resumen de la promocion</h3>
+            <h3 className="text-sm font-medium text-foreground">Resumen de la promoción</h3>
             <div className="rounded-xl border border-border bg-card p-5 space-y-3">
-              <Row label="Codigo" value={watchedValues.code} />
+              <Row label="Código" value={watchedValues.code} />
               <Row label="Nombre" value={watchedValues.name} />
 
               {isCombo ? (
@@ -945,7 +945,7 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
                     <Row label="Aplica cada" value={`Cada ${watchedValues.applies_every} unidades`} />
                   )}
                   <Row
-                    label="Categorias"
+                    label="Categorías"
                     value={`${selectedCategories.size} seleccionada${selectedCategories.size !== 1 ? "s" : ""}`}
                   />
                   <Row
@@ -990,8 +990,8 @@ export function PromotionForm({ promotion }: PromotionFormProps) {
               <Info className="size-4 text-amber-400 shrink-0" />
               <span className="text-xs text-amber-400">
                 {isEditing
-                  ? "Los cambios se aplicaran inmediatamente."
-                  : "La promocion se activara inmediatamente."}
+                  ? "Los cambios se aplicarán inmediatamente."
+                  : "La promoción se activará inmediatamente."}
               </span>
             </div>
           </div>

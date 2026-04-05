@@ -40,7 +40,7 @@ const PRODUCT_STEPS = [
   { title: "Tipo de producto" },
   { title: "Datos basicos" },
   { title: "Precios e Impuestos" },
-  { title: "Stock y Codigo" },
+  { title: "Stock y Código" },
   { title: "Etiquetas" },
   { title: "Confirmacion" },
 ];
@@ -211,14 +211,14 @@ export function ProductForm({ product, type }: ProductFormProps) {
     const invoiceCode = getValues("invoice_code");
     const supplierRuc = getValues("supplier_ruc");
     if (!invoiceCode) {
-      setError("invoice_code", { type: "manual", message: "Codigo de factura requerido" });
+      setError("invoice_code", { type: "manual", message: "Código de factura requerido" });
       hasErrors = true;
     } else if (!/^[A-Za-z0-9]{4}-\d{8}$/.test(invoiceCode)) {
-      setError("invoice_code", { type: "manual", message: "Formato: serie (4 chars) + guion + 8 digitos (ej: F001-00001234)" });
+      setError("invoice_code", { type: "manual", message: "Formato: serie (4 chars) + guion + 8 dígitos (ej: F001-00001234)" });
       hasErrors = true;
     }
     if (!supplierRuc || !/^\d{11}$/.test(supplierRuc)) {
-      setError("supplier_ruc", { type: "manual", message: "RUC debe tener 11 digitos" });
+      setError("supplier_ruc", { type: "manual", message: "RUC debe tener 11 dígitos" });
       hasErrors = true;
     }
     return !hasErrors;
@@ -523,10 +523,10 @@ export function ProductForm({ product, type }: ProductFormProps) {
 
       {/* Description */}
       <div className="space-y-2">
-        <Label htmlFor="description">Descripcion</Label>
+        <Label htmlFor="description">Descripción</Label>
         <Textarea
           id="description"
-          placeholder="Descripcion opcional"
+          placeholder="Descripción opcional"
           rows={3}
           {...register("description")}
         />
@@ -534,7 +534,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
 
       {/* Categories - multi-select */}
       <div className="space-y-2">
-        <Label>Categorias</Label>
+        <Label>Categorías</Label>
         <CategoryMultiSelect
           categories={flatCategories}
           selected={Array.from(selectedCategories)}
@@ -768,7 +768,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
       <div className="space-y-4">
         {isComposite && (
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-2">
-            <p className="text-sm font-medium text-foreground">Stock calculado automaticamente</p>
+            <p className="text-sm font-medium text-foreground">Stock calculado automáticamente</p>
             <p className="text-xs text-muted-foreground">
               El stock de un producto compuesto se calcula en base a la disponibilidad de sus insumos.
               No es necesario ingresarlo manualmente.
@@ -842,11 +842,11 @@ export function ProductForm({ product, type }: ProductFormProps) {
                 {errors.supplier_ruc && (
                   <p className="text-xs text-destructive animate-in fade-in">{errors.supplier_ruc.message}</p>
                 )}
-                <p className="text-xs text-muted-foreground">RUC de 11 digitos del proveedor</p>
+                <p className="text-xs text-muted-foreground">RUC de 11 dígitos del proveedor</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="invoice_code">
-                  Codigo de factura <span className="text-destructive">*</span>
+                  Código de factura <span className="text-destructive">*</span>
                 </Label>
                 <Input
                   id="invoice_code"
@@ -856,7 +856,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
                 {errors.invoice_code && (
                   <p className="text-xs text-destructive animate-in fade-in">{errors.invoice_code.message}</p>
                 )}
-                <p className="text-xs text-muted-foreground">Codigo de la factura de compra</p>
+                <p className="text-xs text-muted-foreground">Código de la factura de compra</p>
               </div>
             </div>
           </div>
@@ -865,13 +865,13 @@ export function ProductForm({ product, type }: ProductFormProps) {
         {/* Barcode section */}
         {isEditing ? (
           <div className="space-y-2 rounded-lg border border-border bg-secondary/20 p-4">
-            <Label className="text-sm font-medium">Codigo de barras</Label>
-            <Input value={product?.barcode || "Sin codigo"} disabled className="opacity-70" />
-            <p className="text-xs text-muted-foreground">El codigo de barras no se puede modificar</p>
+            <Label className="text-sm font-medium">Código de barras</Label>
+            <Input value={product?.barcode || "Sin código"} disabled className="opacity-70" />
+            <p className="text-xs text-muted-foreground">El código de barras no se puede modificar</p>
           </div>
         ) : (
           <div className="space-y-3 rounded-lg border border-border bg-secondary/20 p-4">
-            <Label className="text-sm font-medium">Codigo de barras</Label>
+            <Label className="text-sm font-medium">Código de barras</Label>
 
             {/* Mode toggle */}
             <div className="flex gap-2">
@@ -887,7 +887,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
                     : "border-border bg-card text-muted-foreground hover:bg-secondary/50"
                 }`}
               >
-                Generar automaticamente
+                Generar automáticamente
               </button>
               <button
                 type="button"
@@ -898,7 +898,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
                     : "border-border bg-card text-muted-foreground hover:bg-secondary/50"
                 }`}
               >
-                Tengo un codigo
+                Tengo un código
               </button>
             </div>
 
@@ -915,15 +915,15 @@ export function ProductForm({ product, type }: ProductFormProps) {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="EAN-13">
-                      EAN-13 — Estandar internacional (13 digitos)
+                      EAN-13 — Estándar internacional (13 dígitos)
                     </SelectItem>
                     <SelectItem value="EAN-8">
-                      EAN-8 — Productos pequenos (8 digitos)
+                      EAN-8 — Productos pequeños (8 dígitos)
                     </SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Se generara automaticamente al crear el producto
+                  Se generará automáticamente al crear el producto
                 </p>
               </div>
             )}
@@ -934,7 +934,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
                 <div className="relative">
                   <Input
                     id="barcode"
-                    placeholder="Ingresa un codigo EAN-13 o EAN-8"
+                    placeholder="Ingresa un código EAN-13 o EAN-8"
                     maxLength={13}
                     {...register("barcode")}
                   />
@@ -951,10 +951,10 @@ export function ProductForm({ product, type }: ProductFormProps) {
                 {barcodeValue.length > 0 && (
                   <p className={`text-xs font-medium ${barcodeValid ? "text-emerald-500" : "text-destructive"}`}>
                     {barcodeValid
-                      ? `${detectedFormat} valido`
+                      ? `${detectedFormat} válido`
                       : barcodeValue.length !== 8 && barcodeValue.length !== 13
-                        ? "Debe ser 8 digitos (EAN-8) o 13 digitos (EAN-13)"
-                        : "Digito de control incorrecto"
+                        ? "Debe ser 8 dígitos (EAN-8) o 13 dígitos (EAN-13)"
+                        : "Dígito de control incorrecto"
                     }
                   </p>
                 )}
@@ -973,7 +973,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
       </p>
       {selectedCategories.size === 0 ? (
         <p className="text-sm text-muted-foreground italic">
-          Selecciona al menos una categoria para ver las etiquetas disponibles.
+          Selecciona al menos una categoría para ver las etiquetas disponibles.
         </p>
       ) : filteredTags.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
@@ -1018,14 +1018,14 @@ export function ProductForm({ product, type }: ProductFormProps) {
 
     const sections: { title: string; icon: React.ReactNode; rows: SectionRow[] }[] = [
       {
-        title: "Datos basicos",
+        title: "Datos básicos",
         icon: isService ? <Briefcase className="size-4" /> : <Package className="size-4" />,
         rows: [
           ...(imagePreview ? [{ type: "image" as const, src: imagePreview }] : []),
           { label: "Nombre", value: watchedValues.name },
-          ...(watchedValues.description ? [{ label: "Descripcion", value: watchedValues.description }] : []),
+          ...(watchedValues.description ? [{ label: "Descripción", value: watchedValues.description }] : []),
           { label: "Tipo", value: isService ? "Servicio" : (productKind === "composite" ? "Producto Compuesto" : "Producto Simple") },
-          { label: "Categorias", value: selectedCatNames.length > 0 ? selectedCatNames.join(", ") : "Ninguna" },
+          { label: "Categorías", value: selectedCatNames.length > 0 ? selectedCatNames.join(", ") : "Ninguna" },
           { label: "Sede", value: branches?.find((b) => b.id === watchedValues.branch_id)?.name || "—" },
         ],
       },
@@ -1059,7 +1059,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
       }] : []),
       // Stock section — solo productos
       ...(!isService ? [{
-        title: "Stock y codigo",
+        title: "Stock y código",
         icon: <BarChart3 className="size-4" />,
         rows: [
           ...(productKind === "composite"
@@ -1072,7 +1072,7 @@ export function ProductForm({ product, type }: ProductFormProps) {
             { label: "RUC proveedor", value: watchedValues.supplier_ruc || "—" },
             { label: "Factura", value: watchedValues.invoice_code || "—" },
           ] : []),
-          { label: "Codigo de barras", value: watchedValues.barcode ? `${watchedValues.barcode} (manual)` : `Auto ${watchedValues.barcode_format || "EAN-13"}` },
+          { label: "Código de barras", value: watchedValues.barcode ? `${watchedValues.barcode} (manual)` : `Auto ${watchedValues.barcode_format || "EAN-13"}` },
         ] as SummaryRow[],
       }] : []),
       {

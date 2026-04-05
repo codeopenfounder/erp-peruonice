@@ -48,7 +48,7 @@ const PAYMENT_LABELS: Record<string, { label: string; className: string }> = {
     className: "bg-purple-500/10 text-purple-500",
   },
   credit: {
-    label: "Credito",
+    label: "Crédito",
     className: "bg-amber-500/10 text-amber-500",
   },
   mixed: {
@@ -361,14 +361,14 @@ function TransaccionesPage() {
           onValueChange={(v) => setPaymentFilter(v === "all" ? null : v)}
         >
           <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Metodo pago" />
+            <SelectValue placeholder="Método pago" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">Todos los metodos</SelectItem>
             <SelectItem value="cash">Efectivo</SelectItem>
             <SelectItem value="card">Tarjeta</SelectItem>
             <SelectItem value="transfer">Transferencia</SelectItem>
-            <SelectItem value="credit">Credito</SelectItem>
+            <SelectItem value="credit">Crédito</SelectItem>
             <SelectItem value="mixed">Mixto</SelectItem>
           </SelectContent>
         </Select>

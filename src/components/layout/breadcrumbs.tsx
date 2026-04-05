@@ -17,7 +17,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   insumos: "Insumos",
   promociones: "Promociones",
   movimientos: "Movimientos",
-  auditoria: "Auditoria",
+  auditoria: "Auditoría",
   // Finanzas
   finanzas: "Finanzas",
   caja: "Caja",

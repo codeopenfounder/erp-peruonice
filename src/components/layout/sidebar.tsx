@@ -216,11 +216,11 @@ function SidebarContent({ isCollapsed }: { isCollapsed: boolean }) {
       {/* Logo area */}
       <div className="relative flex shrink-0 items-center border-b border-border px-4 py-3">
         {isCollapsed ? (
-          <img src="/poi-logo.png" alt="Peru On Ice" className="mx-auto h-6 w-auto" />
+          <img src="/poi-logo.png" alt="Perú On Ice" className="mx-auto h-6 w-auto" />
         ) : (
           <div className="flex items-center gap-2 min-w-0">
-            <img src="/poi-logo.png" alt="Peru On Ice" className="h-7 w-auto shrink-0" />
-            <span className="text-sm font-bold text-primary truncate">Peru On Ice</span>
+            <img src="/poi-logo.png" alt="Perú On Ice" className="h-7 w-auto shrink-0" />
+            <span className="text-sm font-bold text-primary truncate">Perú On Ice</span>
           </div>
         )}
 

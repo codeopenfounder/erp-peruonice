@@ -31,7 +31,7 @@ export function getPromotionColumns(actions: PromotionColumnActions): ColumnDef<
   return [
     {
       accessorKey: "code",
-      header: "Codigo",
+      header: "Código",
       cell: ({ row }) => (
         <span className="font-mono text-xs text-muted-foreground">{row.original.code}</span>
       ),

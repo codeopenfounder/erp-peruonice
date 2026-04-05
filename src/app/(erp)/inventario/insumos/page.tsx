@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PinAuthDialog } from "@/components/ui/pin-auth-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { CategorySidebar } from "@/components/inventario/category-sidebar";
 import { CategoryDialog } from "@/components/inventario/category-dialog";
@@ -95,6 +96,10 @@ export default function InsumosPage() {
     setDeleteId(null);
   };
 
+  const handlePinAuthorizedDelete = async () => {
+    await handleDelete();
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteConfirm) return;
     const result = deleteConfirm.type === "category"
@@ -172,7 +177,7 @@ export default function InsumosPage() {
           <KpiCard
             title="Stock bajo"
             value={kpis?.low_stock_count ?? 0}
-            description="Por debajo del minimo"
+            description="Por debajo del mínimo"
             icon={AlertTriangle}
             variant="warning"
           />
@@ -197,15 +202,15 @@ export default function InsumosPage() {
       <div className="lg:hidden">
         <Button variant="outline" size="sm" onClick={() => setSidebarOpen(true)}>
           <SlidersHorizontal className="mr-2 size-4" />
-          Categorias y etiquetas
+          Categorías y etiquetas
         </Button>
       </div>
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-[300px] overflow-y-auto p-0">
           <SheetHeader className="px-4 pt-4">
-            <SheetTitle>Categorias y etiquetas</SheetTitle>
-            <SheetDescription>Filtra insumos por categoria o etiqueta</SheetDescription>
+            <SheetTitle>Categorías y etiquetas</SheetTitle>
+            <SheetDescription>Filtra insumos por categoría o etiqueta</SheetDescription>
           </SheetHeader>
           <div className="px-2 pb-4">
             <CategorySidebar
@@ -299,13 +304,13 @@ export default function InsumosPage() {
         categoryId={tagCategoryId}
       />
 
-      <ConfirmDialog
+      <PinAuthDialog
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
         title="Eliminar insumo"
-        description="Este insumo se eliminara permanentemente."
-        onConfirm={handleDelete}
-        variant="danger"
+        description="Este insumo se desactivará permanentemente. Ingresa el PIN de un gerente para autorizar."
+        onAuthorized={handlePinAuthorizedDelete}
+        isLoading={deleteMutation.isPending}
       />
 
       {stockSupply && (
@@ -321,11 +326,11 @@ export default function InsumosPage() {
       <ConfirmDialog
         open={!!deleteConfirm}
         onOpenChange={() => setDeleteConfirm(null)}
-        title={deleteConfirm?.type === "category" ? "Eliminar categoria" : "Eliminar etiqueta"}
+        title={deleteConfirm?.type === "category" ? "Eliminar categoría" : "Eliminar etiqueta"}
         description={
           deleteConfirm?.type === "category"
-            ? `Se eliminara la categoria "${deleteConfirm?.name ?? ""}"`
-            : `Se eliminara la etiqueta "${deleteConfirm?.name ?? ""}"`
+            ? `Se eliminará la categoría "${deleteConfirm?.name ?? ""}"`
+            : `Se eliminará la etiqueta "${deleteConfirm?.name ?? ""}"`
         }
         onConfirm={handleConfirmDelete}
         variant="danger"

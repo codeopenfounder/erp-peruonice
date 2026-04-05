@@ -42,11 +42,11 @@ const COLUMNS = [
   { header: "Tipo", key: "tipo", width: 10 },
   { header: "SKU", key: "sku", width: 12 },
   { header: "Nombre", key: "nombre", width: 24 },
-  { header: "Categoria", key: "categoria", width: 14 },
+  { header: "Categoría", key: "categoria", width: 14 },
   { header: "Venta", key: "qty_venta", width: 9, format: fmtQty },
-  { header: "Cortesia", key: "qty_cortesia", width: 9, format: fmtQty },
+  { header: "Cortesía", key: "qty_cortesia", width: 9, format: fmtQty },
   { header: "Merma", key: "qty_merma", width: 9, format: fmtQty },
-  { header: "Perdida", key: "qty_perdida", width: 9, format: fmtQty },
+  { header: "Pérdida", key: "qty_perdida", width: 9, format: fmtQty },
   { header: "Rotura", key: "qty_rotura", width: 9, format: fmtQty },
   { header: "Cons. Staff", key: "qty_consumo_staff", width: 10, format: fmtQty },
   { header: "Ajuste", key: "qty_ajuste", width: 9, format: fmtQty },
@@ -55,13 +55,13 @@ const COLUMNS = [
   { header: "Ingreso", key: "qty_ingreso", width: 9, format: fmtQty },
   { header: "Salida", key: "qty_salida", width: 9, format: fmtQty },
   { header: "Neto Mov.", key: "total_movimientos", width: 10, format: fmtQty },
-  { header: "Stock Teorico", key: "stock_teorico", width: 11, format: fmtQty },
-  { header: "Stock Fisico", key: "stock_fisico", width: 11, format: (v: unknown) => {
+  { header: "Stock Teórico", key: "stock_teorico", width: 11, format: fmtQty },
+  { header: "Stock Físico", key: "stock_fisico", width: 11, format: (v: unknown) => {
     const n = Number(v || 0)
     return n < 0 ? "Sin conteo" : n.toFixed(2)
   }},
   { header: "Diferencia", key: "diferencia", width: 10, format: fmtQty },
-  { header: "Ultimo Conteo", key: "fecha_ultimo_conteo", width: 12 },
+  { header: "Último Conteo", key: "fecha_ultimo_conteo", width: 12 },
   { header: "Costo Unit. (S/)", key: "costo_unitario", width: 12, format: fmtMoney },
   { header: "Valor Stock (S/)", key: "valor_stock", width: 12, format: fmtMoney },
 ]
@@ -140,7 +140,7 @@ export function KardexInventarioReport({ open, onOpenChange }: Props) {
         <DialogHeader className="px-6 pt-6 pb-4 border-b border-border/50">
           <DialogTitle className="text-lg">Kardex de Inventario</DialogTitle>
           <DialogDescription>
-            Desglose de movimientos por producto: ventas, mermas, cortesias, ajustes y mas. Incluye stock teorico vs fisico.
+            Desglose de movimientos por producto: ventas, mermas, cortesías, ajustes y más. Incluye stock teórico vs físico.
           </DialogDescription>
         </DialogHeader>
 

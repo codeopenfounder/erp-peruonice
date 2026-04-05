@@ -261,10 +261,8 @@ export async function POST(request: Request) {
           .eq("tenant_id", ctx.tenantId)
           .eq("is_active", true),
 
-        // Schedule time ranges (for active schedules)
-        adminClient
-          .from("schedule_time_ranges")
-          .select("id, schedule_id, day_of_week, start_time, end_time, capacity_override"),
+        // Schedule time ranges — placeholder, filtered after Promise.all by tenant's schedule IDs
+        Promise.resolve({ data: null as any }),
 
         // Reservations (today and future, confirmed/completed only)
         adminClient
@@ -293,6 +291,18 @@ export async function POST(request: Request) {
           .from("capacity_group_members")
           .select("id, group_id, schedule_id"),
       ]);
+
+      // Fetch schedule time ranges filtered by tenant's schedule IDs (security: prevents cross-tenant data leak)
+      const scheduleIds = (schedulesRes.data || []).map((s: any) => s.id);
+      if (scheduleIds.length > 0) {
+        const { data } = await adminClient
+          .from("schedule_time_ranges")
+          .select("id, schedule_id, day_of_week, start_time, end_time, capacity_override")
+          .in("schedule_id", scheduleIds);
+        scheduleTimeRangesRes.data = data;
+      } else {
+        scheduleTimeRangesRes.data = [];
+      }
 
       // Get tag assignments and category assignments for products
       const productIds = (productsRes.data || []).map((p) => p.id);
@@ -605,9 +615,8 @@ export async function POST(request: Request) {
             .eq("tenant_id", ctx.tenantId)
             .eq("is_active", true),
 
-          adminClient
-            .from("schedule_time_ranges")
-            .select("id, schedule_id, day_of_week, start_time, end_time, capacity_override"),
+          // Placeholder — filtered after by tenant's schedule IDs
+          Promise.resolve({ data: null as any }),
 
           adminClient
             .from("reservations")
@@ -633,6 +642,18 @@ export async function POST(request: Request) {
             .from("capacity_group_members")
             .select("id, group_id, schedule_id"),
         ]);
+
+      // Fetch schedule time ranges filtered by tenant's schedule IDs (security: prevents cross-tenant data leak)
+      const incrScheduleIds = (incrSchedulesRes.data || []).map((s: any) => s.id);
+      if (incrScheduleIds.length > 0) {
+        const { data } = await adminClient
+          .from("schedule_time_ranges")
+          .select("id, schedule_id, day_of_week, start_time, end_time, capacity_override")
+          .in("schedule_id", incrScheduleIds);
+        incrTimeRangesRes.data = data;
+      } else {
+        incrTimeRangesRes.data = [];
+      }
 
       return NextResponse.json({
         success: true,
@@ -665,7 +686,7 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json(
-      { success: false, error: "Tipo de sync invalido. Usa 'full' o 'incremental'" },
+      { success: false, error: "Tipo de sync inválido. Usa 'full' o 'incremental'" },
       { status: 400 },
     );
   } catch (err: unknown) {

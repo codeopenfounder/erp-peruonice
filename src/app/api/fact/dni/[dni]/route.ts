@@ -12,7 +12,7 @@ export async function GET(
     // Validate DNI format (8 digits)
     if (!/^\d{8}$/.test(dni)) {
       return NextResponse.json(
-        { success: false, error: "DNI invalido: debe tener 8 digitos" },
+        { success: false, error: "DNI inválido: debe tener 8 dígitos" },
         { status: 400 },
       );
     }

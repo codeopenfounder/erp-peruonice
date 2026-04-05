@@ -43,7 +43,7 @@ export function CortesiasCard({ data, isLoading }: CortesiasCardProps) {
                 {data?.cortesia_count ?? 0}
               </p>
               <p className="text-xs text-muted-foreground">
-                cortesias entregadas
+                cortesías entregadas
               </p>
             </div>
 

@@ -79,7 +79,7 @@ export function FileUpload({
     (file: File) => {
       if (file.size > maxSizeMB * 1024 * 1024) {
         toast.error(
-          `El archivo excede el tamano maximo de ${maxSizeMB} MB`
+          `El archivo excede el tamaño máximo de ${maxSizeMB} MB`
         );
         return;
       }

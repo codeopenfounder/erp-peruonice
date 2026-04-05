@@ -225,7 +225,7 @@ export default function CapacidadPage() {
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
         title="Eliminar grupo de capacidad"
-        description="Este grupo se eliminara permanentemente junto con todas las asignaciones de horarios. Los horarios quedarán libres para reasignación."
+        description="Este grupo se eliminará permanentemente junto con todas las asignaciones de horarios. Los horarios quedarán libres para reasignación."
         onConfirm={handleDelete}
         variant="danger"
       />

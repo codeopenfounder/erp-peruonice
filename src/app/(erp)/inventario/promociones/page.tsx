@@ -141,14 +141,14 @@ export default function PromocionesPage() {
         isLoading={isLoading}
         pageSize={PAGE_SIZE}
         emptyMessage="No hay promociones registradas"
-        emptyActionLabel="Crear promocion"
+        emptyActionLabel="Crear promoción"
         emptyActionHref="/inventario/promociones/nueva"
       />
 
       <ConfirmDialog
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
-        title="Eliminar promocion"
+        title="Eliminar promoción"
         description="Esta accion no se puede deshacer."
         onConfirm={handleDelete}
         variant="danger"

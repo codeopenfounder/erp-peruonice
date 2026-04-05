@@ -3,7 +3,7 @@ import { z } from "zod";
 // --- Product Category ---
 
 export const createCategorySchema = z.object({
-  name: z.string().min(2, "Minimo 2 caracteres").max(100, "Maximo 100 caracteres"),
+  name: z.string().min(2, "Mínimo 2 caracteres").max(100, "Máximo 100 caracteres"),
   parent_id: z.string().uuid().optional().or(z.literal("")),
   type: z.enum(["product", "service", "both", "supply"]),
   sort_order: z.coerce.number().int().min(0).optional(),
@@ -16,8 +16,8 @@ export const updateCategorySchema = createCategorySchema.partial();
 // --- Product Tag ---
 
 export const createTagSchema = z.object({
-  category_id: z.string().uuid("Categoria requerida"),
-  name: z.string().min(1, "Nombre requerido").max(50, "Maximo 50 caracteres"),
+  category_id: z.string().uuid("Categoría requerida"),
+  name: z.string().min(1, "Nombre requerido").max(50, "Máximo 50 caracteres"),
   color: z.string().optional().or(z.literal("")),
   sort_order: z.coerce.number().int().min(0).optional(),
 });
@@ -29,8 +29,8 @@ export const updateTagSchema = createTagSchema.partial().omit({ category_id: tru
 // --- Product ---
 
 export const createProductSchema = z.object({
-  name: z.string().min(2, "Minimo 2 caracteres").max(200, "Maximo 200 caracteres"),
-  description: z.string().max(1000, "Maximo 1000 caracteres").optional().or(z.literal("")),
+  name: z.string().min(2, "Mínimo 2 caracteres").max(200, "Máximo 200 caracteres"),
+  description: z.string().max(1000, "Máximo 1000 caracteres").optional().or(z.literal("")),
   type: z.enum(["product", "service"]),
   product_kind: z.enum(["simple", "composite"]).default("simple"),
   recipe_items: z
@@ -73,9 +73,9 @@ export type UpdateProductSchemaType = z.infer<typeof updateProductSchema>;
 // --- Stock ---
 
 export const addStockSchema = z.object({
-  quantity: z.coerce.number().min(0.001, "Cantidad minima: 0.001"),
-  supplier_ruc: z.string().min(11, "RUC debe tener 11 digitos").max(11, "RUC debe tener 11 digitos").regex(/^\d{11}$/, "RUC debe ser 11 digitos numericos"),
-  invoice_code: z.string().min(1, "Codigo de factura requerido").regex(/^[A-Za-z0-9]{4}-\d{8}$/, "Formato: serie (4 chars) + guion + 8 digitos (ej: F001-00001234)"),
+  quantity: z.coerce.number().min(0.001, "Cantidad mínima: 0.001"),
+  supplier_ruc: z.string().min(11, "RUC debe tener 11 dígitos").max(11, "RUC debe tener 11 dígitos").regex(/^\d{11}$/, "RUC debe ser 11 dígitos numéricos"),
+  invoice_code: z.string().min(1, "Código de factura requerido").regex(/^[A-Za-z0-9]{4}-\d{8}$/, "Formato: serie (4 chars) + guion + 8 dígitos (ej: F001-00001234)"),
   notes: z.string().max(500).optional().or(z.literal("")),
 });
 

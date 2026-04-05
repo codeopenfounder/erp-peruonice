@@ -136,7 +136,7 @@ function ComprobantesContent() {
           <KpiCard
             title="NC / ND"
             value={kpis?.notas_credito ?? 0}
-            description="Notas de credito y debito"
+            description="Notas de crédito y débito"
             icon={FileWarning}
             variant="warning"
           />
@@ -166,8 +166,8 @@ function ComprobantesContent() {
             <SelectItem value="all">Todos los tipos</SelectItem>
             <SelectItem value="factura">Factura</SelectItem>
             <SelectItem value="boleta">Boleta</SelectItem>
-            <SelectItem value="nota_credito">Nota Credito</SelectItem>
-            <SelectItem value="nota_debito">Nota Debito</SelectItem>
+            <SelectItem value="nota_credito">Nota Crédito</SelectItem>
+            <SelectItem value="nota_debito">Nota Débito</SelectItem>
           </SelectContent>
         </Select>
 
@@ -186,7 +186,7 @@ function ComprobantesContent() {
             <SelectItem value="accepted">Aceptado</SelectItem>
             <SelectItem value="rejected">Rechazado</SelectItem>
             <SelectItem value="voided">Anulado</SelectItem>
-            <SelectItem value="pending_void">Anulacion pendiente</SelectItem>
+            <SelectItem value="pending_void">Anulación pendiente</SelectItem>
           </SelectContent>
         </Select>
 
@@ -195,14 +195,14 @@ function ComprobantesContent() {
           onValueChange={(v) => setPaymentFilter(v === "all" ? null : v)}
         >
           <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Metodo pago" />
+            <SelectValue placeholder="Método pago" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">Todos los metodos</SelectItem>
+            <SelectItem value="all">Todos los métodos</SelectItem>
             <SelectItem value="cash">Efectivo</SelectItem>
             <SelectItem value="card">Tarjeta</SelectItem>
             <SelectItem value="transfer">Transferencia</SelectItem>
-            <SelectItem value="credit">Credito</SelectItem>
+            <SelectItem value="credit">Crédito</SelectItem>
             <SelectItem value="mixed">Mixto</SelectItem>
           </SelectContent>
         </Select>

@@ -8,14 +8,14 @@ const baseFields = {
   first_name: z.string().min(1, "Nombre requerido"),
   last_name: z.string().min(1, "Apellido requerido"),
   cargo: z.enum(CARGO_OPTIONS, { message: "Cargo requerido" }),
-  pin_code: z.string().regex(/^\d{4}$/, "PIN debe ser exactamente 4 digitos"),
+  pin_code: z.string().regex(/^\d{4}$/, "PIN debe ser exactamente 4 dígitos"),
 };
 
 // For gerente/supervisor (need email + password for web access)
 export const createWebUserSchema = z.object({
   ...baseFields,
-  email: z.string().email("Email invalido"),
-  password: z.string().min(6, "Minimo 6 caracteres"),
+  email: z.string().email("Email inválido"),
+  password: z.string().min(6, "Mínimo 6 caracteres"),
 });
 
 // For cajero (no email/password — POS only)
@@ -28,14 +28,14 @@ export const createUserSchema = z.discriminatedUnion("cargo", [
   z.object({
     ...baseFields,
     cargo: z.literal("gerente"),
-    email: z.string().email("Email invalido"),
-    password: z.string().min(6, "Minimo 6 caracteres"),
+    email: z.string().email("Email inválido"),
+    password: z.string().min(6, "Mínimo 6 caracteres"),
   }),
   z.object({
     ...baseFields,
     cargo: z.literal("supervisor"),
-    email: z.string().email("Email invalido"),
-    password: z.string().min(6, "Minimo 6 caracteres"),
+    email: z.string().email("Email inválido"),
+    password: z.string().min(6, "Mínimo 6 caracteres"),
   }),
   z.object({
     ...baseFields,

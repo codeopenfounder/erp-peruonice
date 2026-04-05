@@ -20,14 +20,14 @@ export default function EditarPromocionPage({ params }: { params: Promise<{ id: 
   }
 
   if (!promotion) {
-    return <p className="py-12 text-center text-muted-foreground">Promocion no encontrada</p>;
+    return <p className="py-12 text-center text-muted-foreground">Promoción no encontrada</p>;
   }
 
   return (
     <div className="space-y-6">
       <PageHeader
         title={`Editar: ${promotion.name}`}
-        description={`Codigo: ${promotion.code}`}
+        description={`Código: ${promotion.code}`}
       />
       <div className="mx-auto max-w-2xl">
         <PromotionForm promotion={promotion} />

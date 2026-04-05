@@ -36,7 +36,7 @@ const COLUMNS = [
   { header: "Hora Apertura", key: "hora_apertura", width: 12 },
   { header: "Hora Cierre", key: "hora_cierre", width: 12 },
   { header: "Caja", key: "caja", width: 16 },
-  { header: "Codigo", key: "codigo_caja", width: 12 },
+  { header: "Código", key: "codigo_caja", width: 12 },
   { header: "Sede", key: "sede", width: 16 },
   { header: "Estado", key: "estado", width: 10 },
   { header: "Monto Apertura (S/)", key: "monto_apertura", width: 16, format: (v: unknown) => Number(v || 0).toFixed(2) },
@@ -78,7 +78,7 @@ export function ControlCajaReport({ open, onOpenChange }: Props) {
       await exportFlatData({
         filename: `control-caja-${dateFrom}-a-${dateTo}`,
         sheetName: "Caja",
-        reportTitle: "Control Financiero y Auditoria de Caja",
+        reportTitle: "Control Financiero y Auditoría de Caja",
         dateRange: { from: dateFrom, to: dateTo },
         columns: COLUMNS,
         data: data as unknown as Record<string, unknown>[],

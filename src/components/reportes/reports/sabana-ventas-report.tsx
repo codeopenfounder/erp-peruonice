@@ -39,7 +39,7 @@ const COLUMNS = [
   { header: "Dia", key: "dia_semana", width: 12 },
   { header: "Serie-Correlativo", key: "serie_correlativo", width: 20 },
   { header: "Tipo Comprobante", key: "tipo_comprobante", width: 16 },
-  { header: "Metodo Pago", key: "metodo_pago", width: 14 },
+  { header: "Método Pago", key: "metodo_pago", width: 14 },
   { header: "Sede", key: "sede", width: 16 },
   { header: "Caja", key: "caja", width: 14 },
   { header: "Cajero", key: "cajero", width: 18 },
@@ -53,7 +53,7 @@ const PAYMENT_OPTIONS = [
   { value: "card", label: "Tarjeta" },
   { value: "transfer", label: "Transferencia" },
   { value: "mixed", label: "Mixto" },
-  { value: "credit", label: "Credito" },
+  { value: "credit", label: "Crédito" },
 ]
 
 export function SabanaVentasReport({ open, onOpenChange }: Props) {
@@ -171,7 +171,7 @@ export function SabanaVentasReport({ open, onOpenChange }: Props) {
               </div>
             )}
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Metodo Pago</label>
+              <label className="text-xs font-medium text-muted-foreground">Método Pago</label>
               <Select value={paymentMethod} onValueChange={(v) => { setPaymentMethod(v); setGenerated(false) }}>
                 <SelectTrigger className="w-[160px]">
                   <SelectValue placeholder="Todos" />

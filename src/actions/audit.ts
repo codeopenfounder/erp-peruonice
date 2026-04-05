@@ -22,7 +22,7 @@ const FIELD_LABELS: Record<string, string> = {
   first_name: "Nombre",
   last_name: "Apellido",
   document_type: "Tipo de documento",
-  document_number: "Numero de documento",
+  document_number: "Número de documento",
   birth_date: "Fecha de nacimiento",
   gender: "Genero",
   marital_status: "Estado civil",
@@ -118,10 +118,10 @@ export async function getEmployeeActivityLog(
 
     switch (action) {
       case "create":
-        description = `${actorName} registro al empleado`;
+        description = `${actorName} registró al empleado`;
         break;
       case "edit":
-        description = `${actorName} edito la informacion`;
+        description = `${actorName} editó la información`;
         if (entry.new_data && typeof entry.new_data === "object") {
           const diff = entry.new_data as Record<string, { old: unknown; new: unknown }>;
           changes = Object.entries(diff).map(([field, vals]) => ({
@@ -130,9 +130,9 @@ export async function getEmployeeActivityLog(
             new: formatValue(field, vals?.new),
           }));
           if (changes.length === 1) {
-            description = `${actorName} edito ${changes[0].field.toLowerCase()}`;
+            description = `${actorName} editó ${changes[0].field.toLowerCase()}`;
           } else if (changes.length > 1) {
-            description = `${actorName} edito ${changes.length} campos`;
+            description = `${actorName} editó ${changes.length} campos`;
           }
         }
         break;
@@ -146,10 +146,10 @@ export async function getEmployeeActivityLog(
         description = `${actorName} deshabilito al empleado`;
         break;
       case "enabled":
-        description = `${actorName} habilito al empleado`;
+        description = `${actorName} habilitó al empleado`;
         break;
       case "account_created":
-        description = `${actorName} creo la cuenta de acceso`;
+        description = `${actorName} creó la cuenta de acceso`;
         break;
       default:
         description = `${actorName} realizo: ${action}`;

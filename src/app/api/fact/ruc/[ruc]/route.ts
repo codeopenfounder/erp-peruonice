@@ -12,7 +12,7 @@ export async function GET(
     // Validate RUC format (11 digits)
     if (!/^\d{11}$/.test(ruc)) {
       return NextResponse.json(
-        { success: false, error: "RUC invalido: debe tener 11 digitos" },
+        { success: false, error: "RUC inválido: debe tener 11 dígitos" },
         { status: 400 },
       );
     }

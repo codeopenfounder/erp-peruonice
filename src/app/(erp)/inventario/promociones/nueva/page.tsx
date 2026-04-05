@@ -7,8 +7,8 @@ export default function NuevaPromocionPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Nueva promocion"
-        description="Configura una nueva promocion o descuento"
+        title="Nueva promoción"
+        description="Configura una nueva promoción o descuento"
       />
       <div className="mx-auto max-w-2xl">
         <PromotionForm />

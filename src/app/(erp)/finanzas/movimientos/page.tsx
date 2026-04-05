@@ -35,7 +35,7 @@ const PAGE_SIZE = 50;
 const TYPE_OPTIONS = [
   { value: "sale", label: "Venta" },
   { value: "expense", label: "Egreso" },
-  { value: "refund", label: "Devolucion" },
+  { value: "refund", label: "Devolución" },
   { value: "petty_cash_in", label: "Caja Chica" },
 ];
 

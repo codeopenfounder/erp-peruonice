@@ -16,8 +16,8 @@ const optionalNum = (min: number) =>
 
 export const createPromotionSchema = z
   .object({
-    code: z.string().min(2, "Minimo 2 caracteres").max(30, "Maximo 30 caracteres"),
-    name: z.string().min(2, "Minimo 2 caracteres").max(200, "Maximo 200 caracteres"),
+    code: z.string().min(2, "Mínimo 2 caracteres").max(30, "Máximo 30 caracteres"),
+    name: z.string().min(2, "Mínimo 2 caracteres").max(200, "Máximo 200 caracteres"),
     description: z.string().max(500).optional().or(z.literal("")),
     discount_type: z.enum(["percentage", "fixed_amount"]),
     discount_value: z.coerce.number().min(0, "Valor de descuento requerido"),

@@ -12,8 +12,8 @@ const MOVEMENT_TYPE_CONFIG: Record<string, { label: string; icon: React.ElementT
   income: { label: "Ingreso", icon: ArrowDown, className: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
   outcome: { label: "Egreso", icon: ArrowUp, className: "bg-red-500/15 text-red-500 border-red-500/30" },
   sale: { label: "Venta", icon: ShoppingCart, className: "bg-cyan-500/15 text-cyan-500 border-cyan-500/30" },
-  nc_return: { label: "Devolucion NC", icon: RotateCcw, className: "bg-orange-500/15 text-orange-500 border-orange-500/30" },
-  cortesia: { label: "Cortesia", icon: Gift, className: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
+  nc_return: { label: "Devolución NC", icon: RotateCcw, className: "bg-orange-500/15 text-orange-500 border-orange-500/30" },
+  cortesia: { label: "Cortesía", icon: Gift, className: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
 };
 
 interface MovementTypeBadgeProps {

@@ -36,7 +36,7 @@ export default function AuditDetailPage({
     return (
       <div className="flex flex-col items-center py-24 text-center">
         <p className="text-sm text-muted-foreground">
-          Auditoria no encontrada
+          Auditoría no encontrada
         </p>
         <Button
           variant="outline"
@@ -56,7 +56,7 @@ export default function AuditDetailPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={`Auditoria #${auditDate}`}
+        title={`Auditoría #${auditDate}`}
         description={audit.branch_name || ""}
         actions={
           <div className="flex items-center gap-3">

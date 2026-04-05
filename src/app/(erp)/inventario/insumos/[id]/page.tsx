@@ -80,11 +80,11 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
       <div className="grid gap-6 md:grid-cols-2">
         {/* General info */}
         <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Informacion general</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Información general</h3>
           <Row label="Nombre" value={supply.name} />
           <Row label="Unidad de medida" value={`${supply.unit_of_measure} - ${uomLabel}`} />
           <Row label="Sede" value={supply.branch_name || "\u2014"} />
-          <Row label="Categorias">
+          <Row label="Categorías">
             {supply.categories && supply.categories.length > 0 ? (
               <div className="flex flex-wrap gap-1 justify-end">
                 {supply.categories.map((cat) => (
@@ -97,10 +97,10 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
                 ))}
               </div>
             ) : (
-              <span className="text-sm text-muted-foreground">Sin categoria</span>
+              <span className="text-sm text-muted-foreground">Sin categoría</span>
             )}
           </Row>
-          <Row label="Descripcion" value={supply.description || "Sin descripcion"} />
+          <Row label="Descripción" value={supply.description || "Sin descripción"} />
           <Row label="Estado">
             <StatusBadge status={supply.is_active ? "active" : "inactive"} />
           </Row>
@@ -127,7 +127,7 @@ export default function SupplyDetailPage({ params }: { params: Promise<{ id: str
           <Row label="Cantidad actual">
             <StockBadge quantity={supply.stock_quantity} minStock={supply.min_stock} type="product" />
           </Row>
-          <Row label="Stock minimo" value={supply.min_stock != null ? String(supply.min_stock) : "No definido"} />
+          <Row label="Stock mínimo" value={supply.min_stock != null ? String(supply.min_stock) : "No definido"} />
           {supply.available_in_pos && (
             <Row label="Disponible en POS">
               <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary border border-primary/30">

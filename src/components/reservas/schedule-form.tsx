@@ -253,7 +253,7 @@ export function ScheduleForm({ schedule }: ScheduleFormProps) {
             </Select>
             {isBranchLocked && (
               <p className="text-xs text-muted-foreground">
-                Sede asignada automaticamente segun el servicio
+                Sede asignada automáticamente según el servicio
               </p>
             )}
             {errors.branch_id && (

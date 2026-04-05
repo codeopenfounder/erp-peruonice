@@ -51,7 +51,7 @@ export async function POST(request: Request) {
 
     if (!amount || typeof amount !== "number" || amount <= 0) {
       return NextResponse.json(
-        { success: false, error: "Monto invalido" },
+        { success: false, error: "Monto inválido" },
         { status: 400 },
       );
     }

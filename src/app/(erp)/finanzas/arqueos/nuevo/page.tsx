@@ -633,7 +633,7 @@ export default function NuevoArqueoPage() {
                       pinResult &&
                       !pinResult.valid && (
                         <p className="text-xs text-red-500 text-center mt-1.5">
-                          PIN invalido
+                          PIN inválido
                         </p>
                       )}
                     {pinComplete &&

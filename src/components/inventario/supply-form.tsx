@@ -285,10 +285,10 @@ export function SupplyForm({ supply }: SupplyFormProps) {
 
             {/* Description */}
             <div className="space-y-2">
-              <Label htmlFor="description">Descripcion</Label>
+              <Label htmlFor="description">Descripción</Label>
               <Textarea
                 id="description"
-                placeholder="Descripcion opcional"
+                placeholder="Descripción opcional"
                 rows={3}
                 {...register("description")}
               />
@@ -296,7 +296,7 @@ export function SupplyForm({ supply }: SupplyFormProps) {
 
             {/* Categories - multi-select */}
             <div className="space-y-2">
-              <Label>Categorias</Label>
+              <Label>Categorías</Label>
               <CategoryMultiSelect
                 categories={flatCategories}
                 selected={Array.from(selectedCategories)}
@@ -391,7 +391,7 @@ export function SupplyForm({ supply }: SupplyFormProps) {
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="min_stock">Stock minimo</Label>
+                <Label htmlFor="min_stock">Stock mínimo</Label>
                 <Input id="min_stock" type="number" min="0" step={DECIMAL_UNITS.has(watchedValues.unit_of_measure) ? "any" : "1"} {...register("min_stock")} />
               </div>
             </div>
@@ -410,7 +410,7 @@ export function SupplyForm({ supply }: SupplyFormProps) {
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="invoice_code">Codigo de factura</Label>
+                    <Label htmlFor="invoice_code">Código de factura</Label>
                     <Input
                       id="invoice_code"
                       placeholder="F001-00001234"
@@ -434,7 +434,7 @@ export function SupplyForm({ supply }: SupplyFormProps) {
       </p>
       {selectedCategories.size === 0 ? (
         <p className="text-sm text-muted-foreground italic">
-          Selecciona al menos una categoria para ver las etiquetas disponibles.
+          Selecciona al menos una categoría para ver las etiquetas disponibles.
         </p>
       ) : filteredTags.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
@@ -479,13 +479,13 @@ export function SupplyForm({ supply }: SupplyFormProps) {
 
     const sections: { title: string; icon: React.ReactNode; rows: SectionRow[] }[] = [
       {
-        title: "Datos basicos",
+        title: "Datos básicos",
         icon: <Package className="size-4" />,
         rows: [
           ...(imagePreview ? [{ type: "image" as const, src: imagePreview }] : []),
           { label: "Nombre", value: watchedValues.name },
-          ...(watchedValues.description ? [{ label: "Descripcion", value: watchedValues.description }] : []),
-          { label: "Categorias", value: selectedCatNames.length > 0 ? selectedCatNames.join(", ") : "Ninguna" },
+          ...(watchedValues.description ? [{ label: "Descripción", value: watchedValues.description }] : []),
+          { label: "Categorías", value: selectedCatNames.length > 0 ? selectedCatNames.join(", ") : "Ninguna" },
           { label: "Sede", value: branches?.find((b) => b.id === watchedValues.branch_id)?.name || "\u2014" },
           { label: "Disponible en POS", value: watchedValues.available_in_pos ? "Si" : "No" },
         ],
@@ -498,7 +498,7 @@ export function SupplyForm({ supply }: SupplyFormProps) {
           { label: "Moneda", value: watchedValues.currency === "PEN" ? "Soles (PEN)" : "Dolares (USD)" },
           { label: "Unidad de medida", value: uomLabel },
           { label: "Stock inicial", value: String(watchedValues.stock_quantity ?? 0) },
-          { label: "Stock minimo", value: String(watchedValues.min_stock ?? 0) },
+          { label: "Stock mínimo", value: String(watchedValues.min_stock ?? 0) },
         ] as SummaryRow[],
       },
       {

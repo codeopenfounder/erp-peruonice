@@ -67,7 +67,7 @@ export function CategoryDialog({ open, onOpenChange, category, parentId, default
       return;
     }
 
-    toast.success(isEditing ? "Categoria actualizada" : "Categoria creada");
+    toast.success(isEditing ? "Categoría actualizada" : "Categoría creada");
     reset();
     onOpenChange(false);
   };
@@ -78,7 +78,7 @@ export function CategoryDialog({ open, onOpenChange, category, parentId, default
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Editar categoria" : "Nueva categoria"}</DialogTitle>
+          <DialogTitle>{isEditing ? "Editar categoría" : "Nueva categoría"}</DialogTitle>
         </DialogHeader>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -86,7 +86,7 @@ export function CategoryDialog({ open, onOpenChange, category, parentId, default
             <Label htmlFor="name">Nombre</Label>
             <Input
               id="name"
-              placeholder="Nombre de la categoria"
+              placeholder="Nombre de la categoría"
               {...register("name")}
             />
             {errors.name && (

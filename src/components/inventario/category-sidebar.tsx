@@ -60,7 +60,7 @@ export function CategorySidebar({
   return (
     <div className="flex h-full flex-col rounded-xl border border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <span className="text-sm font-medium text-foreground">Categorias</span>
+        <span className="text-sm font-medium text-foreground">Categorías</span>
         <Button variant="ghost" size="icon" className="size-7" onClick={onCreateCategory}>
           <Plus className="size-4" />
         </Button>

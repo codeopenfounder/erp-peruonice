@@ -214,7 +214,7 @@ export async function createUser(input: unknown) {
     actorId: userId,
     moduleCodes: ["config.usuarios"],
     title: "Nuevo usuario creado",
-    message: `${actorName} creo el usuario "${first_name} ${last_name}" (${cargoLabel})`,
+    message: `${actorName} creó el usuario "${first_name} ${last_name}" (${cargoLabel})`,
     type: "success",
   }).catch(console.error);
 
@@ -255,7 +255,7 @@ export async function updateUserPermissions(
 ) {
   const parsed = updatePermissionsSchema.safeParse(permissions);
   if (!parsed.success) {
-    return { success: false as const, error: "Permisos invalidos" };
+    return { success: false as const, error: "Permisos inválidos" };
   }
 
   const { supabase, tenantId, userId } = await requirePermission(
@@ -309,7 +309,7 @@ export async function updateUserPermissions(
     actorId: userId,
     moduleCodes: ["config.usuarios"],
     title: "Permisos actualizados",
-    message: `${actorName} actualizo los permisos de ${targetName}`,
+    message: `${actorName} actualizó los permisos de ${targetName}`,
     type: "info",
   }).catch(console.error);
 
@@ -407,7 +407,7 @@ export async function deleteUser(targetUserId: string) {
     actorId: userId,
     moduleCodes: ["config.usuarios"],
     title: "Usuario eliminado",
-    message: `${actorName} elimino al usuario "${targetName}"`,
+    message: `${actorName} eliminó al usuario "${targetName}"`,
     type: "warning",
   }).catch(console.error);
 

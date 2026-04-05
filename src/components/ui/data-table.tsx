@@ -273,7 +273,7 @@ export function DataTable<TData, TValue>({
               Anterior
             </Button>
             <span className="text-sm text-muted-foreground">
-              Pagina {displayCurrentPage} de {displayTotalPages}
+              Página {displayCurrentPage} de {displayTotalPages}
             </span>
             <Button
               variant="outline"

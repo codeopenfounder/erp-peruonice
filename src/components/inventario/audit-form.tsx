@@ -72,7 +72,7 @@ export function AuditForm() {
     validatePinAction(pin).then((result) => {
       if (cancelled) return;
       setPinLoading(false);
-      if (!result.valid) { setPinError(result.error || "PIN invalido"); return; }
+      if (!result.valid) { setPinError(result.error || "PIN inválido"); return; }
       const cargo = result.cargo || "";
       if (cargo !== "gerente" && cargo !== "supervisor") {
         setPinError("Solo gerentes o supervisores pueden autorizar");
@@ -80,7 +80,7 @@ export function AuditForm() {
       }
       setPinValid(true); setPinUserId(result.user_id || null);
       setPinUserName(result.user_name || null); setPinUserCargo(cargo);
-    }).catch(() => { if (!cancelled) { setPinLoading(false); setPinError("Error de conexion"); } });
+    }).catch(() => { if (!cancelled) { setPinLoading(false); setPinError("Error de conexión"); } });
     return () => { cancelled = true; };
   }, [pin]);
 
@@ -267,7 +267,7 @@ export function AuditForm() {
       // Clear draft
       const draftKey = `poi-audit-draft-${branchId}`;
       localStorage.removeItem(draftKey);
-      toast.success("Auditoria guardada exitosamente");
+      toast.success("Auditoría guardada exitosamente");
       setConfirmOpen(false);
       router.push("/inventario/auditoria");
     } else {
@@ -316,7 +316,7 @@ export function AuditForm() {
 
             {/* Category filter */}
             <div className="space-y-2">
-              <Label>Categoria (opcional)</Label>
+              <Label>Categoría (opcional)</Label>
               <Select value={categoryId || "all"} onValueChange={(v) => setCategoryId(v === "all" ? "" : v)}>
                 <SelectTrigger>
                   <SelectValue placeholder="Todas las categorias" />
@@ -513,7 +513,7 @@ export function AuditForm() {
 
             {/* PIN authorization */}
             <div className="space-y-2 pt-2 border-t">
-              <Label>PIN de autorizacion *</Label>
+              <Label>PIN de autorización *</Label>
               <p className="text-xs text-muted-foreground">Ingresa el PIN de un gerente o supervisor para aprobar</p>
               <div className="relative max-w-[200px]">
                 <input
@@ -583,9 +583,9 @@ export function AuditForm() {
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title="Confirmar auditoria"
-        description={`Se ajustara el stock de ${adjustedRows.length} items. Esto generara una ${impactLabel} contable de S/ ${Math.abs(totalImpact).toFixed(2)}. ¿Desea confirmar?`}
-        confirmLabel="Confirmar auditoria"
+        title="Confirmar auditoría"
+        description={`Se ajustará el stock de ${adjustedRows.length} items. Esto generará una ${impactLabel} contable de S/ ${Math.abs(totalImpact).toFixed(2)}. ¿Desea confirmar?`}
+        confirmLabel="Confirmar auditoría"
         onConfirm={handleConfirm}
         isLoading={createMutation.isPending}
       />

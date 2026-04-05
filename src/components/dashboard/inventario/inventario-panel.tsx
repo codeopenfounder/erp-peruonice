@@ -25,7 +25,7 @@ export function InventarioPanel() {
         ) : (
           <>
             <MetricCard
-              title="Auditorias realizadas"
+              title="Auditorías realizadas"
               value={data?.total_audits ?? 0}
               icon={ClipboardCheck}
               variant="default"

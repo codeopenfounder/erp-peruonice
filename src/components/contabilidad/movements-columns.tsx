@@ -12,7 +12,7 @@ const TYPE_CONFIG: Record<string, { label: string; className: string; sign: stri
     sign: "+",
   },
   refund: {
-    label: "Devolucion",
+    label: "Devolución",
     className: "bg-warning/10 text-warning border-warning/20",
     sign: "-",
   },
@@ -84,7 +84,7 @@ export function getMovementsColumns(): ColumnDef<GastosMovementListItem>[] {
     },
     {
       id: "detail",
-      header: "Descripcion / Motivo",
+      header: "Descripción / Motivo",
       cell: ({ row }) => {
         const desc = row.original.description || row.original.reason;
         return (

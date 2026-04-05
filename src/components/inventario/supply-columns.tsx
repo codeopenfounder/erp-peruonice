@@ -91,7 +91,7 @@ export function getSupplyColumns(
     },
     {
       accessorKey: "categories",
-      header: "Categorias",
+      header: "Categorías",
       cell: ({ row }) => {
         const cats = row.original.categories;
         if (!cats || cats.length === 0) return <span className="text-xs text-muted-foreground">&mdash;</span>;

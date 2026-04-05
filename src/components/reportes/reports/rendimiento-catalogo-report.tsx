@@ -33,7 +33,7 @@ interface Props {
 
 const COLUMNS = [
   { header: "Fecha", key: "fecha", width: 12 },
-  { header: "Categoria", key: "categoria_producto", width: 18 },
+  { header: "Categoría", key: "categoria_producto", width: 18 },
   { header: "Producto", key: "nombre_producto", width: 24 },
   { header: "SKU", key: "sku", width: 14 },
   { header: "Tipo", key: "tipo_producto", width: 10 },

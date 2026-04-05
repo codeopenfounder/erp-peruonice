@@ -119,7 +119,7 @@ export default function ArqueosPage() {
     <div className="space-y-6">
       <PageHeader
         title="Arqueos de Caja"
-        description="Auditorias y conteos de efectivo en cajas registradoras"
+        description="Auditorías y conteos de efectivo en cajas registradoras"
         actions={
           <Button asChild>
             <Link href="/finanzas/arqueos/nuevo">

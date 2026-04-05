@@ -74,10 +74,10 @@ export default function ServiceDetailPage({ params }: { params: Promise<{ id: st
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Informacion general</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Información general</h3>
           <Row label="Tipo" value="Servicio" />
           <Row label="Sede" value={product.branch_name || "—"} />
-          <Row label="Categorias">
+          <Row label="Categorías">
             {product.categories && product.categories.length > 0 ? (
               <div className="flex flex-wrap gap-1 justify-end">
                 {product.categories.map((cat) => (
@@ -90,10 +90,10 @@ export default function ServiceDetailPage({ params }: { params: Promise<{ id: st
                 ))}
               </div>
             ) : (
-              <span className="text-sm text-muted-foreground">Sin categoria</span>
+              <span className="text-sm text-muted-foreground">Sin categoría</span>
             )}
           </Row>
-          <Row label="Descripcion" value={product.description || "Sin descripcion"} />
+          <Row label="Descripción" value={product.description || "Sin descripción"} />
           <Row label="Estado">
             <StatusBadge status={product.is_active ? "active" : "inactive"} />
           </Row>

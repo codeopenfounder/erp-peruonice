@@ -81,7 +81,7 @@ export function BarcodeDisplay({ value, label }: BarcodeDisplayProps) {
         </div>
         <Button variant="outline" size="sm" onClick={handleDownload}>
           <Download className="mr-2 size-4" />
-          Descargar codigo de barras
+          Descargar código de barras
         </Button>
       </div>
     </div>

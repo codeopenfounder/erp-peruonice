@@ -30,20 +30,20 @@ export async function updateSession(request: NextRequest) {
   );
 
   // Refresh the auth token to keep the session alive.
-  // IMPORTANT: Do not remove this line. It prevents stale sessions.
+  // Uses getSession() instead of getUser() to avoid network calls to Supabase
+  // Auth server from Edge middleware (prevents MIDDLEWARE_INVOCATION_TIMEOUT).
+  // Server actions still use getUser() for cryptographic verification.
   const {
-    data: { user },
-  } = await supabase.auth.getUser();
+    data: { session },
+  } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
 
   // Redirect unauthenticated users to login page
+  // API routes are excluded from the middleware matcher, so no need to check them here
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/login") &&
-    !request.nextUrl.pathname.startsWith("/auth") &&
-    !request.nextUrl.pathname.startsWith("/api/auth") &&
-    !request.nextUrl.pathname.startsWith("/api/devices") &&
-    !request.nextUrl.pathname.startsWith("/api/fact") &&
-    !request.nextUrl.pathname.startsWith("/api/lector")
+    !request.nextUrl.pathname.startsWith("/auth")
   ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const createBranchSchema = z.object({
-  name: z.string().min(2, "Minimo 2 caracteres"),
+  name: z.string().min(2, "Mínimo 2 caracteres"),
   type: z.enum(["sede_principal", "sucursal", "oficina", "almacen", "planta"]),
   is_main: z.boolean().default(false),
   address: z.string().optional(),
@@ -9,7 +9,7 @@ export const createBranchSchema = z.object({
   province: z.string().optional(),
   district: z.string().optional(),
   phone: z.string().optional(),
-  email: z.string().email("Email invalido").optional().or(z.literal("")),
+  email: z.string().email("Email inválido").optional().or(z.literal("")),
   manager_id: z.string().uuid().optional().or(z.literal("")),
 });
 

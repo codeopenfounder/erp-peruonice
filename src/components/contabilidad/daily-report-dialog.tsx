@@ -36,7 +36,7 @@ const PAYMENT_LABELS: Record<string, string> = {
   cash: "Efectivo",
   card: "Tarjeta",
   transfer: "Transferencia",
-  credit: "Credito",
+  credit: "Crédito",
   mixed: "Mixto",
 };
 
@@ -44,7 +44,7 @@ const TYPE_LABELS: Record<string, string> = {
   sale: "Venta",
   income: "Ingreso",
   expense: "Retiro",
-  refund: "Devolucion",
+  refund: "Devolución",
   petty_cash_in: "Fondo adicional",
 };
 
@@ -200,7 +200,7 @@ async function exportDailyReportExcel(report: DailyReportData, date: string) {
     addMergedRow(`Apertura: ${openTime}  |  Cierre: ${closeTime}  |  Fondo: S/ ${o.opening_amount.toFixed(2)}`, { size: 9, color: { argb: MUTED } }, 18);
 
     // Movement table header
-    const hdr = ws.addRow(["Hora", "Tipo", "Descripcion", "Monto", "Comprobante", "Metodo Pago"]);
+    const hdr = ws.addRow(["Hora", "Tipo", "Descripción", "Monto", "Comprobante", "Método Pago"]);
     hdr.height = 22;
     hdr.eachCell((cell) => {
       cell.font = { name: "Calibri", size: 9, bold: true, color: { argb: DARK } };

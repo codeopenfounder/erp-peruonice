@@ -26,8 +26,8 @@ interface Props {
 const COLUMNS = [
   { header: "Fecha", key: "fecha", width: 12 },
   { header: "Hora", key: "hora", width: 8 },
-  { header: "Promocion", key: "nombre_promo", width: 24 },
-  { header: "Codigo", key: "codigo_promo", width: 14 },
+  { header: "Promoción", key: "nombre_promo", width: 24 },
+  { header: "Código", key: "codigo_promo", width: 14 },
   { header: "Tipo Descuento", key: "tipo_descuento", width: 14 },
   { header: "Valor Descuento", key: "valor_descuento", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
   { header: "Monto Descontado (S/)", key: "monto_descontado", width: 18, format: (v: unknown) => Number(v || 0).toFixed(2) },

@@ -40,9 +40,9 @@ const TYPE_CONFIG: Record<
   string,
   { icon: React.ElementType; color: string; bg: string; label: string }
 > = {
-  info: { icon: Info, color: "text-blue-400", bg: "bg-blue-500/10", label: "Informacion" },
+  info: { icon: Info, color: "text-blue-400", bg: "bg-blue-500/10", label: "Información" },
   warning: { icon: AlertTriangle, color: "text-amber-400", bg: "bg-amber-500/10", label: "Advertencia" },
-  success: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", label: "Exito" },
+  success: { icon: CheckCircle, color: "text-emerald-400", bg: "bg-emerald-500/10", label: "Éxito" },
   error: { icon: XCircle, color: "text-red-400", bg: "bg-red-500/10", label: "Error" },
 };
 

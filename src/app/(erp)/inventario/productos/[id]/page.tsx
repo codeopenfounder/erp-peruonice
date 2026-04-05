@@ -82,10 +82,10 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
       <div className="grid gap-6 md:grid-cols-2">
         <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-          <h3 className="text-sm font-medium text-muted-foreground">Informacion general</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Información general</h3>
           <Row label="Tipo" value={isService ? "Servicio" : "Producto"} />
           <Row label="Sede" value={product.branch_name || "—"} />
-          <Row label="Categorias">
+          <Row label="Categorías">
             {product.categories && product.categories.length > 0 ? (
               <div className="flex flex-wrap gap-1 justify-end">
                 {product.categories.map((cat) => (
@@ -98,10 +98,10 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
                 ))}
               </div>
             ) : (
-              <span className="text-sm text-muted-foreground">Sin categoria</span>
+              <span className="text-sm text-muted-foreground">Sin categoría</span>
             )}
           </Row>
-          <Row label="Descripcion" value={product.description || "Sin descripcion"} />
+          <Row label="Descripción" value={product.description || "Sin descripción"} />
           <Row label="Estado">
             <StatusBadge status={product.is_active ? "active" : "inactive"} />
           </Row>
@@ -119,7 +119,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
 
         {/* Barcode - products only */}
         {!isService && product.barcode && (
-          <BarcodeDisplay value={product.barcode} label="Codigo de barras (EAN-13)" />
+          <BarcodeDisplay value={product.barcode} label="Código de barras (EAN-13)" />
         )}
 
         {/* Stock card with Add Stock button */}
@@ -137,7 +137,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
             <Row label="Cantidad actual">
               <StockBadge quantity={product.stock_quantity} minStock={product.min_stock} type="product" />
             </Row>
-            <Row label="Stock minimo" value={product.min_stock != null ? String(product.min_stock) : "No definido"} />
+            <Row label="Stock mínimo" value={product.min_stock != null ? String(product.min_stock) : "No definido"} />
           </div>
         )}
 
@@ -174,7 +174,7 @@ export default function ProductDetailPage({ params }: { params: Promise<{ id: st
       {!isService && product.product_kind === "composite" && (
         <div className="rounded-xl border border-border bg-card p-6">
           <p className="text-sm text-muted-foreground">
-            El stock de este producto compuesto se calcula automaticamente a partir de los insumos de su receta.
+            El stock de este producto compuesto se calcula automáticamente a partir de los insumos de su receta.
           </p>
         </div>
       )}

@@ -60,7 +60,7 @@ const ROUTE_META: Record<string, { icon: string; label: string }> = {
   "/inventario/insumos": { icon: "Warehouse", label: "Insumos" },
   "/inventario/promociones": { icon: "Ticket", label: "Promociones" },
   "/inventario/movimientos": { icon: "ArrowLeftRight", label: "Movimientos" },
-  "/inventario/auditoria": { icon: "ClipboardCheck", label: "Auditoria" },
+  "/inventario/auditoria": { icon: "ClipboardCheck", label: "Auditoría" },
   // Finanzas
   "/finanzas/caja": { icon: "Monitor", label: "Caja" },
   "/finanzas/cierres": { icon: "CheckCircle", label: "Cierres" },

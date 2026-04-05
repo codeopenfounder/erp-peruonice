@@ -25,7 +25,7 @@ const PAYMENT_CONFIG = [
   { key: "revenue_cash", label: "Efectivo", color: "var(--chart-2)" },
   { key: "revenue_card", label: "Tarjeta", color: "var(--chart-5)" },
   { key: "revenue_transfer", label: "Transferencia", color: "var(--chart-4)" },
-  { key: "revenue_credit", label: "Credito", color: "var(--chart-3)" },
+  { key: "revenue_credit", label: "Crédito", color: "var(--chart-3)" },
   { key: "revenue_mixed", label: "Mixto", color: "var(--chart-1)" },
 ] as const;
 
@@ -77,7 +77,7 @@ function CustomLegend({
 }
 
 const PAYMENT_EXPORT_COLS = [
-  { header: "Metodo", key: "name", width: 16 },
+  { header: "Método", key: "name", width: 16 },
   { header: "Monto (S/)", key: "value", width: 14, format: (v: unknown) => Number(v || 0).toFixed(2) },
   { header: "% del Total", key: "pct", width: 12, format: (v: unknown) => Number(v || 0).toFixed(1) + "%" },
 ];
@@ -109,13 +109,13 @@ export function PaymentTypeChart() {
 
   return (
     <ChartCard
-      title="Metodos de Pago"
+      title="Métodos de Pago"
       isLoading={isLoading}
       isFetching={isFetching}
       isEmpty={!chartData.length}
       action={
         <ChartExportButton
-          chartTitle="Metodos de Pago"
+          chartTitle="Métodos de Pago"
           dateRange={{ from: filters.date_from, to: filters.date_to }}
           columns={PAYMENT_EXPORT_COLS}
           getData={getData}

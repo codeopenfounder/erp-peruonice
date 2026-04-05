@@ -172,7 +172,7 @@ function PinInput({
         <p className="text-sm text-red-400 text-center">{error}</p>
       )}
       <p className="text-xs text-muted-foreground text-center">
-        4 digitos numericos, unico por usuario
+        4 dígitos numéricos, único por usuario
       </p>
     </div>
   );
@@ -236,11 +236,11 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
     if (!lastName.trim()) errs.last_name = "Apellido requerido";
     if (needsWebFields) {
       if (!email.trim()) errs.email = "Email requerido";
-      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = "Email invalido";
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errs.email = "Email inválido";
       if (!password) errs.password = "Contrasena requerida";
-      else if (password.length < 6) errs.password = "Minimo 6 caracteres";
+      else if (password.length < 6) errs.password = "Mínimo 6 caracteres";
     }
-    if (!/^\d{4}$/.test(pinCode)) errs.pin_code = "PIN debe ser exactamente 4 digitos";
+    if (!/^\d{4}$/.test(pinCode)) errs.pin_code = "PIN debe ser exactamente 4 dígitos";
     setErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -409,7 +409,7 @@ export function CreateUserDialog({ open, onOpenChange }: CreateUserDialogProps) 
                     <Label>Contrasena</Label>
                     <Input
                       type="password"
-                      placeholder="Minimo 6 caracteres"
+                      placeholder="Mínimo 6 caracteres"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       className={errors.password ? "border-red-500/50" : ""}

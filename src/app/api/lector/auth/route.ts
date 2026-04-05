@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     // Validate PIN format (4 digits)
     if (!/^\d{4}$/.test(pin)) {
       return NextResponse.json(
-        { success: false, error: "PIN invalido" },
+        { success: false, error: "PIN inválido" },
         { status: 401 },
       );
     }
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
 
     if (assignError || !assignment) {
       return NextResponse.json(
-        { success: false, error: "PIN invalido" },
+        { success: false, error: "PIN inválido" },
         { status: 401 },
       );
     }
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
     if (profileError || !profile) {
       return NextResponse.json(
-        { success: false, error: "PIN invalido" },
+        { success: false, error: "PIN inválido" },
         { status: 401 },
       );
     }

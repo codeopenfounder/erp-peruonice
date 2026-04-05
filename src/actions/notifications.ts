@@ -194,7 +194,7 @@ export async function notifyLowStockPush(params: {
     actorId: "", // system-generated
     moduleCodes: INVENTORY_MODULES,
     title: "Stock bajo",
-    message: `"${params.productName}" tiene ${params.currentStock} unidades (minimo: ${params.minStock})`,
+    message: `"${params.productName}" tiene ${params.currentStock} unidades (mínimo: ${params.minStock})`,
     resourceType: params.resourceType,
     resourceId: params.resourceId,
     type: "warning",

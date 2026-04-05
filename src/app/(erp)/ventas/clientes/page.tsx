@@ -116,7 +116,7 @@ export default function ClientesPage() {
         <EmptyState
           icon={MonitorSmartphone}
           title="Sin clientes registrados"
-          description="Los clientes se crean automaticamente desde POI Fact (POS) al emitir comprobantes con datos del cliente."
+          description="Los clientes se crean automáticamente desde POI Fact (POS) al emitir comprobantes con datos del cliente."
         />
       ) : (
         <>

@@ -14,7 +14,7 @@
  * Weights from left: 1,3,1,3,1,3,1,3,1,3,1,3
  */
 export function calculateEAN13CheckDigit(twelveDigits: string): number {
-  if (!/^\d{12}$/.test(twelveDigits)) throw new Error("Se requieren 12 digitos");
+  if (!/^\d{12}$/.test(twelveDigits)) throw new Error("Se requieren 12 dígitos");
   const d = twelveDigits.split("").map(Number);
   let sum = 0;
   for (let i = 0; i < 12; i++) {
@@ -28,7 +28,7 @@ export function calculateEAN13CheckDigit(twelveDigits: string): number {
  * Weights from left: 3,1,3,1,3,1,3
  */
 export function calculateEAN8CheckDigit(sevenDigits: string): number {
-  if (!/^\d{7}$/.test(sevenDigits)) throw new Error("Se requieren 7 digitos");
+  if (!/^\d{7}$/.test(sevenDigits)) throw new Error("Se requieren 7 dígitos");
   const d = sevenDigits.split("").map(Number);
   let sum = 0;
   for (let i = 0; i < 7; i++) {

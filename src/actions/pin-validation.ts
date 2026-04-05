@@ -13,7 +13,7 @@ interface PinValidationResult {
 
 export async function validatePinAction(pin: string): Promise<PinValidationResult> {
   if (!pin || !/^\d{4}$/.test(pin)) {
-    return { valid: false, error: "PIN invalido" };
+    return { valid: false, error: "PIN inválido" };
   }
 
   const { tenantId } = await getAuthContext();
@@ -48,4 +48,13 @@ export async function validatePinAction(pin: string): Promise<PinValidationResul
     user_name: profile.full_name,
     cargo: profile.cargo,
   };
+}
+
+export async function validateGerentePinAction(pin: string): Promise<PinValidationResult> {
+  const result = await validatePinAction(pin);
+  if (!result.valid) return result;
+  if (result.cargo !== "gerente") {
+    return { valid: false, error: "Solo gerentes pueden autorizar esta acción" };
+  }
+  return result;
 }

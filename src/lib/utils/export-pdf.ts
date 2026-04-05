@@ -90,7 +90,7 @@ export async function exportTableToPdf(opts: PdfExportOptions): Promise<void> {
       const ph = doc.internal.pageSize.getHeight()
       doc.setFontSize(7)
       doc.setTextColor(156, 163, 175)
-      doc.text(`Peru On Ice - Pagina ${data.pageNumber}`, 14, ph - 6)
+      doc.text(`Perú On Ice - Página ${data.pageNumber}`, 14, ph - 6)
     },
   })
 
@@ -171,7 +171,7 @@ export async function exportChartToPdf(opts: ChartPdfExportOptions): Promise<voi
         const ph = doc.internal.pageSize.getHeight()
         doc.setFontSize(7)
         doc.setTextColor(156, 163, 175)
-        doc.text(`Peru On Ice - Pagina ${data.pageNumber}`, 14, ph - 6)
+        doc.text(`Perú On Ice - Página ${data.pageNumber}`, 14, ph - 6)
       },
     })
   }

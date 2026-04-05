@@ -65,7 +65,7 @@ export default function PromotionDetailPage({
     return (
       <div className="flex flex-col items-center py-24 text-center">
         <p className="text-sm text-muted-foreground">
-          Promocion no encontrada
+          Promoción no encontrada
         </p>
         <Button variant="outline" className="mt-4" onClick={() => router.back()}>
           Volver
@@ -80,7 +80,7 @@ export default function PromotionDetailPage({
     <div className="space-y-6">
       <PageHeader
         title={promo.name}
-        description={`Codigo: ${promo.code}`}
+        description={`Código: ${promo.code}`}
         actions={
           <div className="flex gap-2">
             <Button
@@ -106,7 +106,7 @@ export default function PromotionDetailPage({
       <div className="grid gap-5 md:grid-cols-2">
         {/* Info general */}
         <Card>
-          <CardHeader icon={<Info className="size-4" />} title="Informacion general" />
+          <CardHeader icon={<Info className="size-4" />} title="Información general" />
           <Row label="Estado">
             <PromotionStatusBadge status={status} />
           </Row>
@@ -134,7 +134,7 @@ export default function PromotionDetailPage({
             </>
           )}
           {promo.description && (
-            <Row label="Descripcion" value={promo.description} />
+            <Row label="Descripción" value={promo.description} />
           )}
         </Card>
 
@@ -171,19 +171,19 @@ export default function PromotionDetailPage({
         <Card>
           <CardHeader icon={<Settings2 className="size-4" />} title="Requisitos y uso" />
           <Row
-            label="Compra minima"
+            label="Compra mínima"
             value={
               promo.min_purchase_amount
                 ? `S/. ${promo.min_purchase_amount.toFixed(2)}`
-                : "Sin minimo"
+                : "Sin mínimo"
             }
           />
           <Row
-            label="Descuento maximo"
+            label="Descuento máximo"
             value={
               promo.max_discount_amount
                 ? `S/. ${promo.max_discount_amount.toFixed(2)}`
-                : "Sin maximo"
+                : "Sin máximo"
             }
           />
           <Row
@@ -270,15 +270,15 @@ export default function PromotionDetailPage({
           </Card>
         )}
 
-        {/* Categorias y etiquetas — hidden for combos */}
+        {/* Categorías y etiquetas — hidden for combos */}
         {!promo.is_combo && (promo.category_filters.length > 0 ||
           promo.tag_filters.length > 0) && (
           <Card className="md:col-span-2">
-            <CardHeader icon={<FolderOpen className="size-4" />} title="Categorias y etiquetas" />
+            <CardHeader icon={<FolderOpen className="size-4" />} title="Categorías y etiquetas" />
             {promo.category_filters.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider">
-                  Categorias
+                  Categorías
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {promo.category_filters.map((f) => (

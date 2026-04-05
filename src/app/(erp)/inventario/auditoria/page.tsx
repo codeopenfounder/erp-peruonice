@@ -82,13 +82,13 @@ function AuditoriaPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Auditoria de Inventario"
-        description="Control de stock fisico vs teorico"
+        title="Auditoría de Inventario"
+        description="Control de stock físico vs teórico"
         actions={
           canCreate("inventario.auditoria") ? (
             <Button onClick={() => router.push("/inventario/auditoria/nueva")}>
               <Plus className="mr-2 size-4" />
-              Nueva auditoria
+              Nueva auditoría
             </Button>
           ) : undefined
         }
@@ -118,7 +118,7 @@ function AuditoriaPage() {
             variant="danger"
           />
           <KpiCard
-            title="Ultima auditoria"
+            title="Última auditoría"
             value={
               kpis?.last_audit_date
                 ? format(new Date(kpis.last_audit_date), "dd MMM yyyy", {

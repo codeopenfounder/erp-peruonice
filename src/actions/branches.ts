@@ -207,7 +207,7 @@ export async function createBranch(input: unknown) {
     actorId: userId,
     moduleCodes: ["negocio.sedes"],
     title: "Nueva sede creada",
-    message: `${actorName} creo la sede "${data.name}"`,
+    message: `${actorName} creó la sede "${data.name}"`,
     resourceType: "branch",
   }).catch(console.error);
 
@@ -273,7 +273,7 @@ export async function updateBranch(id: string, input: unknown) {
     actorId: userId,
     moduleCodes: ["negocio.sedes"],
     title: "Sede actualizada",
-    message: `${actorName} actualizo la sede "${branchName}"`,
+    message: `${actorName} actualizó la sede "${branchName}"`,
     resourceType: "branch",
     resourceId: id,
   }).catch(console.error);

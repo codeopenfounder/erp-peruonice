@@ -81,10 +81,10 @@ function getMovementTypeLabel(type: string): string {
     sale: "Venta",
     income: "Ingreso",
     expense: "Egreso",
-    refund: "Devolucion",
+    refund: "Devolución",
     cash_in: "Ingreso",
     cash_out: "Retiro",
-    nd_charge: "Nota Debito",
+    nd_charge: "Nota Débito",
     petty_cash_in: "Caja Chica",
   };
   return map[type] || type;
@@ -217,7 +217,7 @@ export default function ArqueoDetailPage({
               <Card>
                 <CardHeader className="pb-3">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Informacion General
+                    Información General
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -436,7 +436,7 @@ export default function ArqueoDetailPage({
                               Tipo
                             </th>
                             <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">
-                              Descripcion
+                              Descripción
                             </th>
                             <th className="text-left px-4 py-2 text-xs font-medium text-muted-foreground">
                               Responsable
@@ -613,7 +613,7 @@ function PrintLayout({
     <div className="max-w-[700px] mx-auto font-sans text-[11px] leading-tight">
       {/* Header */}
       <div className="text-center mb-6 print-no-break">
-        <h1 className="text-xl font-bold">Peru On Ice</h1>
+        <h1 className="text-xl font-bold">Perú On Ice</h1>
         <h2 className="text-base font-semibold mt-1 text-red-600 uppercase tracking-wide">
           {arqueo.type === "cierre" ? "Arqueo de Cierre" : "Arqueo Sorpresa"}
         </h2>
@@ -755,7 +755,7 @@ function PrintLayout({
               <tr className="border-b border-gray-300">
                 <th className="text-left py-0.5">Hora</th>
                 <th className="text-left py-0.5">Tipo</th>
-                <th className="text-left py-0.5">Descripcion</th>
+                <th className="text-left py-0.5">Descripción</th>
                 <th className="text-left py-0.5">Responsable</th>
                 <th className="text-right py-0.5">Monto</th>
               </tr>
@@ -822,7 +822,7 @@ function PrintLayout({
       <div className="mt-6 pt-3 border-t border-gray-300 text-center text-[9px] text-gray-400">
         Documento generado el{" "}
         {new Date().toLocaleString("es-PE", { timeZone: "America/Lima" })} -
-        Peru On Ice - Sistema POI
+        Perú On Ice - Sistema POI
       </div>
     </div>
   );

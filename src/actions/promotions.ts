@@ -368,8 +368,8 @@ export async function createPromotion(input: unknown) {
       tenantId,
       actorId: userId,
       moduleCodes: ["inventario.promociones"],
-      title: "Promocion creada",
-      message: `Se creo la promocion "${rest.name}" (${rest.code}).`,
+      title: "Promoción creada",
+      message: `Se creó la promoción "${rest.name}" (${rest.code}).`,
       resourceType: "promotion",
       resourceId: promo.id,
       type: "info",
@@ -379,7 +379,7 @@ export async function createPromotion(input: unknown) {
     return { success: true as const, promotionId: promo.id };
   } catch (err) {
     console.error("[createPromotion] unexpected error:", err);
-    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al crear promocion" };
+    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al crear promoción" };
   }
 }
 
@@ -413,7 +413,7 @@ export async function updatePromotion(id: string, input: unknown) {
       .select("*")
       .eq("id", id)
       .single();
-    if (!current) return { success: false as const, error: "Promocion no encontrada" };
+    if (!current) return { success: false as const, error: "Promoción no encontrada" };
 
     // Build update payload
     const updatePayload: Record<string, unknown> = { ...rest };
@@ -466,8 +466,8 @@ export async function updatePromotion(id: string, input: unknown) {
       tenantId,
       actorId: userId,
       moduleCodes: ["inventario.promociones"],
-      title: "Promocion actualizada",
-      message: `Se actualizo la promocion "${current.name}" (${current.code}).`,
+      title: "Promoción actualizada",
+      message: `Se actualizó la promoción "${current.name}" (${current.code}).`,
       resourceType: "promotion",
       resourceId: id,
       type: "info",
@@ -478,7 +478,7 @@ export async function updatePromotion(id: string, input: unknown) {
     return { success: true as const };
   } catch (err) {
     console.error("[updatePromotion] unexpected error:", err);
-    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al editar promocion" };
+    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al editar promoción" };
   }
 }
 
@@ -495,7 +495,7 @@ export async function deletePromotion(id: string) {
       .select("name, code")
       .eq("id", id)
       .single();
-    if (!promo) return { success: false as const, error: "Promocion no encontrada" };
+    if (!promo) return { success: false as const, error: "Promoción no encontrada" };
 
     // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
     const { error } = await supabase
@@ -508,17 +508,17 @@ export async function deletePromotion(id: string) {
       tenantId,
       actorId: userId,
       moduleCodes: ["inventario.promociones"],
-      title: "Promocion eliminada",
-      message: `Se elimino la promocion "${promo.name}" (${promo.code}).`,
+      title: "Promoción eliminada",
+      message: `Se eliminó la promoción "${promo.name}" (${promo.code}).`,
       resourceType: "promotion",
       resourceId: id,
       type: "info",
     }).catch((e) => console.error("[deletePromotion] notify error:", e));
 
     revalidatePath("/inventario/promociones");
-    return { success: true as const, message: "Promocion eliminada exitosamente." };
+    return { success: true as const, message: "Promoción eliminada exitosamente." };
   } catch (err) {
     console.error("[deletePromotion] unexpected error:", err);
-    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al eliminar promocion" };
+    return { success: false as const, error: err instanceof Error ? err.message : "Error inesperado al eliminar promoción" };
   }
 }

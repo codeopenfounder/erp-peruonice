@@ -10,7 +10,7 @@ export async function POST(request: Request) {
 
     if (!pin || !/^\d{4}$/.test(pin)) {
       return NextResponse.json(
-        { valid: false, error: "PIN invalido" },
+        { valid: false, error: "PIN inválido" },
         { status: 400 },
       );
     }

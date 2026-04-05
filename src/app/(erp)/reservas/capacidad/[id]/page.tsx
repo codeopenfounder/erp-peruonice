@@ -214,7 +214,7 @@ export default function CapacidadDetailPage({ params }: PageProps) {
       {!isEditing && (
         <Card>
           <CardHeader>
-            <CardTitle>Informacion del grupo</CardTitle>
+            <CardTitle>Información del grupo</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -411,7 +411,7 @@ export default function CapacidadDetailPage({ params }: PageProps) {
         open={showDeleteDialog}
         onOpenChange={setShowDeleteDialog}
         title="Eliminar grupo de capacidad"
-        description="Este grupo se eliminara permanentemente junto con todas las asignaciones de horarios. Los horarios quedaran libres para reasignacion."
+        description="Este grupo se eliminará permanentemente junto con todas las asignaciones de horarios. Los horarios quedarán libres para reasignación."
         onConfirm={handleDelete}
         variant="danger"
       />

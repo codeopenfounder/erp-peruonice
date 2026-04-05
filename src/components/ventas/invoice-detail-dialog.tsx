@@ -23,15 +23,15 @@ const PAYMENT_LABELS: Record<string, string> = {
   cash: "Efectivo",
   card: "Tarjeta",
   transfer: "Transferencia",
-  credit: "Credito",
+  credit: "Crédito",
   mixed: "Mixto",
 };
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   factura: "Factura",
   boleta: "Boleta de Venta",
-  nota_credito: "Nota de Credito",
-  nota_debito: "Nota de Debito",
+  nota_credito: "Nota de Crédito",
+  nota_debito: "Nota de Débito",
   ticket: "Ticket",
 };
 
@@ -109,7 +109,7 @@ export function InvoiceDetailDialog({
                 />
                 <InfoRow label="Fecha" value={formatDate(invoice.created_at)} />
                 <InfoRow
-                  label="Metodo de pago"
+                  label="Método de pago"
                   value={
                     invoice.payment_method
                       ? (PAYMENT_LABELS[invoice.payment_method] ?? invoice.payment_method)
@@ -156,7 +156,7 @@ export function InvoiceDetailDialog({
               <Table>
                 <TableHeader>
                   <TableRow className="border-border hover:bg-transparent">
-                    <TableHead>Descripcion</TableHead>
+                    <TableHead>Descripción</TableHead>
                     <TableHead className="text-right">Cant.</TableHead>
                     <TableHead className="text-right">P. Unit</TableHead>
                     <TableHead className="text-right">Subtotal</TableHead>
@@ -259,12 +259,12 @@ export function InvoiceDetailDialog({
             {(invoice.sunat_response_code || invoice.xml_url) && (
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <h4 className="text-sm font-semibold text-foreground">
-                  Informacion SUNAT
+                  Información SUNAT
                 </h4>
                 {invoice.sunat_response_code && (
                   <div className="flex items-center gap-2 text-sm">
                     <span className="text-muted-foreground">
-                      Codigo respuesta:
+                      Código respuesta:
                     </span>
                     <span className="font-mono text-foreground">
                       {invoice.sunat_response_code}

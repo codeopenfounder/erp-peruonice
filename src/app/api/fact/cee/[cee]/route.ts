@@ -12,7 +12,7 @@ export async function GET(
     // Validate CEE format (9 digits)
     if (!/^\d{9}$/.test(cee)) {
       return NextResponse.json(
-        { success: false, error: "CE invalido: debe tener 9 digitos" },
+        { success: false, error: "CE inválido: debe tener 9 dígitos" },
         { status: 400 },
       );
     }

@@ -13,12 +13,13 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PinAuthDialog } from "@/components/ui/pin-auth-dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { CategorySidebar } from "@/components/inventario/category-sidebar";
 import { CategoryDialog } from "@/components/inventario/category-dialog";
 import { TagDialog } from "@/components/inventario/tag-dialog";
 import { getProductColumns } from "@/components/inventario/product-columns";
-import { useProducts, useProductKPIs, useDeleteProduct, usePendingProductApprovals } from "@/hooks/queries/use-products";
+import { useProducts, useProductKPIs, useDeleteProduct } from "@/hooks/queries/use-products";
 import { useCategories, useDeleteCategory, useDeleteTag } from "@/hooks/queries/use-categories";
 import { useBranchesForSelect } from "@/hooks/queries/use-branches";
 import { exportToExcel } from "@/lib/utils/export-excel";
@@ -62,13 +63,9 @@ export default function ServiciosPage() {
   const { data: kpis, isLoading: isLoadingKPIs } = useProductKPIs();
   const { data: categories, isLoading: isLoadingCategories } = useCategories("service");
   const { data: branches } = useBranchesForSelect();
-  const { data: pendingApprovals } = usePendingProductApprovals();
   const deleteMutation = useDeleteProduct();
   const deleteCategoryMutation = useDeleteCategory();
   const deleteTagMutation = useDeleteTag();
-
-  const pendingDeleteCatIds = new Set(pendingApprovals?.pendingDeleteCategoryIds ?? []);
-  const pendingDeleteTagIds = new Set(pendingApprovals?.pendingDeleteTagIds ?? []);
 
   const hasEdit = canEdit("inventario.servicios");
   const hasDelete = canDelete("inventario.servicios");
@@ -100,6 +97,10 @@ export default function ServiciosPage() {
     setDeleteId(null);
   };
 
+  const handlePinAuthorizedDelete = async () => {
+    await handleDelete();
+  };
+
   const handleConfirmDelete = async () => {
     if (!deleteConfirm) return;
     const result = deleteConfirm.type === "category"
@@ -122,7 +123,7 @@ export default function ServiciosPage() {
       columns: [
         { header: "SKU", key: "sku", width: 14 },
         { header: "Nombre", key: "name", width: 30 },
-        { header: "Categorias", key: "categories", width: 20, format: (v) => ((v as { name: string }[])?.map((c) => c.name).join(", ")) || "—" },
+        { header: "Categorías", key: "categories", width: 20, format: (v) => ((v as { name: string }[])?.map((c) => c.name).join(", ")) || "—" },
         { header: "Precio", key: "unit_price", width: 12, format: (v) => Number(v).toFixed(2) },
         { header: "Costo", key: "cost_price", width: 12, format: (v) => v ? Number(v).toFixed(2) : "—" },
         { header: "Moneda", key: "currency", width: 8 },
@@ -175,9 +176,9 @@ export default function ServiciosPage() {
             variant="primary"
           />
           <KpiCard
-            title="Categorias"
+            title="Categorías"
             value={kpis?.total_categories ?? 0}
-            description="Categorias activas"
+            description="Categorías activas"
             icon={Layers}
             variant="default"
           />
@@ -188,15 +189,15 @@ export default function ServiciosPage() {
       <div className="lg:hidden">
         <Button variant="outline" size="sm" onClick={() => setSidebarOpen(true)}>
           <SlidersHorizontal className="mr-2 size-4" />
-          Categorias y etiquetas
+          Categorías y etiquetas
         </Button>
       </div>
 
       <Sheet open={sidebarOpen} onOpenChange={setSidebarOpen}>
         <SheetContent side="left" className="w-[300px] overflow-y-auto p-0">
           <SheetHeader className="px-4 pt-4">
-            <SheetTitle>Categorias y etiquetas</SheetTitle>
-            <SheetDescription>Filtra servicios por categoria o etiqueta</SheetDescription>
+            <SheetTitle>Categorías y etiquetas</SheetTitle>
+            <SheetDescription>Filtra servicios por categoría o etiqueta</SheetDescription>
           </SheetHeader>
           <div className="px-2 pb-4">
             <CategorySidebar
@@ -213,8 +214,6 @@ export default function ServiciosPage() {
               }}
               onDeleteCategory={(id, name) => setDeleteConfirm({ type: "category", id, name })}
               onDeleteTag={(id, name) => setDeleteConfirm({ type: "tag", id, name })}
-              pendingDeleteCategoryIds={pendingDeleteCatIds}
-              pendingDeleteTagIds={pendingDeleteTagIds}
             />
           </div>
         </SheetContent>
@@ -236,8 +235,6 @@ export default function ServiciosPage() {
             }}
             onDeleteCategory={(id, name) => setDeleteConfirm({ type: "category", id, name })}
             onDeleteTag={(id, name) => setDeleteConfirm({ type: "tag", id, name })}
-            pendingDeleteCategoryIds={pendingDeleteCatIds}
-            pendingDeleteTagIds={pendingDeleteTagIds}
           />
         </div>
 
@@ -286,23 +283,23 @@ export default function ServiciosPage() {
       <CategoryDialog open={categoryDialogOpen} onOpenChange={setCategoryDialogOpen} defaultType="service" />
       <TagDialog open={tagDialogOpen} onOpenChange={setTagDialogOpen} categoryId={tagCategoryId} />
 
-      <ConfirmDialog
+      <PinAuthDialog
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
         title="Eliminar servicio"
-        description="Este servicio se eliminara permanentemente."
-        onConfirm={handleDelete}
-        variant="danger"
+        description="Este servicio se desactivará permanentemente. Ingresa el PIN de un gerente para autorizar."
+        onAuthorized={handlePinAuthorizedDelete}
+        isLoading={deleteMutation.isPending}
       />
 
       <ConfirmDialog
         open={!!deleteConfirm}
         onOpenChange={() => setDeleteConfirm(null)}
-        title={deleteConfirm?.type === "category" ? "Eliminar categoria" : "Eliminar etiqueta"}
+        title={deleteConfirm?.type === "category" ? "Eliminar categoría" : "Eliminar etiqueta"}
         description={
           deleteConfirm?.type === "category"
-            ? `Se eliminara la categoria "${deleteConfirm?.name ?? ""}"`
-            : `Se eliminara la etiqueta "${deleteConfirm?.name ?? ""}"`
+            ? `Se eliminará la categoría "${deleteConfirm?.name ?? ""}"`
+            : `Se eliminará la etiqueta "${deleteConfirm?.name ?? ""}"`
         }
         onConfirm={handleConfirmDelete}
         variant="danger"

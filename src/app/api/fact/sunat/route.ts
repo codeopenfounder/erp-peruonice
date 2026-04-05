@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         );
       }
 
-      const reason = body?.reason || "Anulacion de la operacion";
+      const reason = body?.reason || "Anulación de la operación";
       const authorization = body?.authorization;
       const result = await voidDocument(
         factConfig,
@@ -181,7 +181,7 @@ export async function POST(request: Request) {
                 entity_id: ri.supply_id,
                 quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
                 movement_type: "nc_return",
-                reason: `Anulacion: ${item.description}`,
+                reason: `Anulación: ${item.description}`,
                 branch_id: voidBranchId,
                 invoice_id: invoiceId,
                 created_by: ctx.userId,
@@ -197,7 +197,7 @@ export async function POST(request: Request) {
               entity_id: item.supply_id,
               quantity: item.quantity,
               movement_type: "nc_return",
-              reason: `Anulacion: ${item.description}`,
+              reason: `Anulación: ${item.description}`,
               branch_id: voidBranchId,
               invoice_id: invoiceId,
               created_by: ctx.userId,
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
               entity_id: item.product_id,
               quantity: item.quantity,
               movement_type: "nc_return",
-              reason: `Anulacion: ${item.description}`,
+              reason: `Anulación: ${item.description}`,
               branch_id: voidBranchId,
               invoice_id: invoiceId,
               created_by: ctx.userId,
@@ -249,7 +249,7 @@ export async function POST(request: Request) {
             opening_id: refundOpeningId,
             type: "refund",
             amount: invoice.total,
-            description: `Anulacion: ${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`,
+            description: `Anulación: ${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`,
             invoice_id: invoiceId,
             payment_method: "cash",
             created_by: ctx.userId,

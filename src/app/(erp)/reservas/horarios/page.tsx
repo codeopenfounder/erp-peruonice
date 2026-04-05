@@ -150,8 +150,8 @@ export default function HorariosPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Horarios de Atencion"
-        description="Configura los horarios de atencion por servicio"
+        title="Horarios de Atención"
+        description="Configura los horarios de atención por servicio"
         actions={
           hasCreate ? (
             <Button onClick={() => router.push("/reservas/horarios/nuevo")}>
@@ -246,7 +246,7 @@ export default function HorariosPage() {
         open={!!deleteId}
         onOpenChange={() => setDeleteId(null)}
         title="Eliminar horario"
-        description="Este horario se eliminara permanentemente. Si tiene reservas activas, se desactivara en su lugar."
+        description="Este horario se eliminará permanentemente. Si tiene reservas activas, se desactivará en su lugar."
         onConfirm={handleDelete}
         variant="danger"
       />

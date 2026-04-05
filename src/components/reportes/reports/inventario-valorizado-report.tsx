@@ -38,7 +38,7 @@ const COLUMNS = [
   { header: "Tipo", key: "tipo", width: 12 },
   { header: "SKU", key: "sku", width: 14 },
   { header: "Nombre", key: "nombre", width: 24 },
-  { header: "Categoria", key: "categoria", width: 16 },
+  { header: "Categoría", key: "categoria", width: 16 },
   { header: "Stock Actual", key: "stock_actual", width: 11, format: fmtQty },
   { header: "Stock Min.", key: "stock_minimo", width: 10, format: fmtQty },
   { header: "Costo Unit. (S/)", key: "costo_unitario", width: 13, format: fmtMoney },
@@ -47,7 +47,7 @@ const COLUMNS = [
   { header: "Ingresos", key: "total_ingresos", width: 10, format: fmtQty },
   { header: "Salidas", key: "total_salidas", width: 10, format: fmtQty },
   { header: "Cambio Neto", key: "cambio_neto", width: 10, format: fmtQty },
-  { header: "Ultimo Conteo", key: "fecha_ultimo_conteo", width: 12 },
+  { header: "Último Conteo", key: "fecha_ultimo_conteo", width: 12 },
 ]
 
 export function InventarioValorizadoReport({ open, onOpenChange }: Props) {

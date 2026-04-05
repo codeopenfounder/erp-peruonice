@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const factConfigSchema = z.object({
-  ruc: z.string().regex(/^\d{11}$/, "El RUC debe tener 11 digitos"),
+  ruc: z.string().regex(/^\d{11}$/, "El RUC debe tener 11 dígitos"),
   razon_social: z.string().min(2, "Razon social requerida"),
   direccion_fiscal: z.string().optional().or(z.literal("")),
   ubigeo: z.string().optional().or(z.literal("")),
@@ -19,9 +19,9 @@ export type FactConfigSchemaType = z.infer<typeof factConfigSchema>;
 export const invoiceSeriesSchema = z.object({
   series_code: z
     .string()
-    .min(4, "Codigo de serie requerido")
-    .max(4, "Maximo 4 caracteres")
-    .regex(/^[A-Z]\d{3}$/, "Formato: letra + 3 digitos (ej: F001, B001)"),
+    .min(4, "Código de serie requerido")
+    .max(4, "Máximo 4 caracteres")
+    .regex(/^[A-Z]\d{3}$/, "Formato: letra + 3 dígitos (ej: F001, B001)"),
   document_type: z.enum([
     "factura",
     "boleta",

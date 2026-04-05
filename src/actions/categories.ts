@@ -155,7 +155,7 @@ export async function deleteCategory(id: string) {
     .select("name")
     .eq("id", id)
     .single();
-  if (!category) return { success: false as const, error: "Categoria no encontrada" };
+  if (!category) return { success: false as const, error: "Categoría no encontrada" };
 
   // Soft-delete: mark as inactive so POI Fact sync picks it up and hides it
   const { error } = await supabase
@@ -168,15 +168,15 @@ export async function deleteCategory(id: string) {
     tenantId,
     actorId: userId,
     moduleCodes: INVENTORY_MODULES,
-    title: "Categoria eliminada",
-    message: `Se elimino la categoria "${category.name}".`,
+    title: "Categoría eliminada",
+    message: `Se eliminó la categoría "${category.name}".`,
     resourceType: "product_category",
     resourceId: id,
     type: "info",
   }).catch((e) => console.error("[deleteCategory] notify error:", e));
 
   revalidatePath("/inventario");
-  return { success: true as const, message: "Categoria eliminada exitosamente." };
+  return { success: true as const, message: "Categoría eliminada exitosamente." };
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +262,7 @@ export async function deleteTag(id: string) {
     actorId: userId,
     moduleCodes: INVENTORY_MODULES,
     title: "Etiqueta eliminada",
-    message: `Se elimino la etiqueta "${tag.name}".`,
+    message: `Se eliminó la etiqueta "${tag.name}".`,
     resourceType: "product_tag",
     resourceId: id,
     type: "info",

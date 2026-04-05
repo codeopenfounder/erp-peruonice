@@ -114,7 +114,7 @@ export default function GeneralConfigPage() {
           </CardHeader>
           <CardContent>
             <Label className="text-sm text-muted-foreground mb-3 block">
-              Ajuste el tamano del texto en toda la aplicacion
+              Ajuste el tamaño del texto en toda la aplicación
             </Label>
             <div className="grid grid-cols-3 gap-3">
               {FONT_OPTIONS.map((opt) => {
@@ -143,10 +143,10 @@ export default function GeneralConfigPage() {
 
             <div className="rounded-lg border border-border/50 bg-secondary/30 p-4">
               <p className="text-sm text-muted-foreground">
-                Vista previa del tamano seleccionado:
+                Vista previa del tamaño seleccionado:
               </p>
               <p className={`mt-1 font-medium text-foreground ${FONT_SIZE_PX[fontSize]}`}>
-                Este es un texto de ejemplo con el tamano &quot;{FONT_OPTIONS.find((o) => o.value === fontSize)?.label}&quot;.
+                Este es un texto de ejemplo con el tamaño &quot;{FONT_OPTIONS.find((o) => o.value === fontSize)?.label}&quot;.
               </p>
             </div>
           </CardContent>

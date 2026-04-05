@@ -62,12 +62,12 @@ export default function DashboardPage() {
             <div className="flex items-center gap-4">
               <img
                 src="/poi-logo.png"
-                alt="Peru On Ice"
+                alt="Perú On Ice"
                 className="h-12 w-auto"
               />
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">
-                  Peru On Ice
+                  Perú On Ice
                 </h1>
                 <p className="text-sm text-muted-foreground">
                   Dashboard analitico

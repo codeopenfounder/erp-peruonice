@@ -26,7 +26,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
     className: "bg-muted text-muted-foreground border-border",
   },
   pending_void: {
-    label: "Anulacion pendiente",
+    label: "Anulación pendiente",
     className: "bg-amber-500/10 text-amber-500 border-amber-500/20",
   },
 };

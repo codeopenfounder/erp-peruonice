@@ -123,7 +123,7 @@ export function AddStockDialog({
                 )}
               </div>
               <div className="space-y-2">
-                <Label htmlFor="invoice-code">Codigo de factura *</Label>
+                <Label htmlFor="invoice-code">Código de factura *</Label>
                 <Input
                   id="invoice-code"
                   placeholder="F001-00001234"

@@ -88,13 +88,13 @@ const SUNAT_CUSTOMER_DOC_TYPES: Record<string, string> = {
 };
 
 const NC_REASONS: Record<string, string> = {
-  "01": "Anulacion de la operacion",
-  "02": "Anulacion por error en el RUC",
-  "03": "Correccion por error en la descripcion",
+  "01": "Anulación de la operación",
+  "02": "Anulación por error en el RUC",
+  "03": "Corrección por error en la descripción",
   "04": "Descuento global",
   "05": "Descuento por item",
-  "06": "Devolucion total",
-  "07": "Devolucion por item",
+  "06": "Devolución total",
+  "07": "Devolución por item",
   "08": "Bonificacion",
   "09": "Disminucion en el valor",
   "10": "Otros conceptos",
@@ -165,7 +165,7 @@ function buildDocumentPayload(
     const refDocType = invoice.reference_document_type || "boleta";
     payload.nota_credito_codigo_tipo = invoice.reference_reason || "01";
     payload.nota_credito_motivo =
-      NC_REASONS[invoice.reference_reason || "01"] || "Anulacion de la operacion";
+      NC_REASONS[invoice.reference_reason || "01"] || "Anulación de la operación";
     payload.documento_afectado = {
       documento: refDocType,
       serie: invoice.reference_series,
@@ -265,7 +265,7 @@ export async function submitToSunat(
     return result;
   } catch (error) {
     // Persist error to invoice for visibility in ERP comprobantes
-    const errorMsg = error instanceof Error ? error.message : "Error de conexion";
+    const errorMsg = error instanceof Error ? error.message : "Error de conexión";
     try {
       const errClient = createAdminClient();
       await errClient.from("invoices").update({
@@ -355,7 +355,7 @@ export async function voidDocument(
     return {
       success: false,
       ticket: null,
-      error: error instanceof Error ? error.message : "Error de conexion",
+      error: error instanceof Error ? error.message : "Error de conexión",
     };
   }
 }
@@ -396,7 +396,7 @@ export async function checkStatus(
       hash: null,
       xmlUrl: null,
       cdrUrl: null,
-      message: error instanceof Error ? error.message : "Error de conexion",
+      message: error instanceof Error ? error.message : "Error de conexión",
     };
   }
 }

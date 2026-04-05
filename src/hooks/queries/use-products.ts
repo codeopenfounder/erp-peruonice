@@ -10,7 +10,6 @@ import {
   deleteProduct,
   updateProductStock,
 } from "@/actions/products";
-import { getEntityMovements } from "@/actions/inventory-movements";
 import type { ProductFilters } from "@/types/product";
 
 // ---------------------------------------------------------------------------
@@ -125,34 +124,3 @@ export function useRecipeItems(productId: string) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Stock Movements
-// ---------------------------------------------------------------------------
-
-/** @deprecated Use useEntityMovements("product", productId) from use-inventory-movements instead */
-export function useStockMovements(productId: string) {
-  return useQuery({
-    queryKey: ["stock-movements", productId],
-    queryFn: () => getEntityMovements("product", productId),
-    enabled: !!productId,
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Pending Approvals (removed — no approval workflow)
-// ---------------------------------------------------------------------------
-
-/** @deprecated Approval workflow removed. Returns empty sets for backward compatibility. */
-export function usePendingProductApprovals() {
-  return useQuery({
-    queryKey: ["pending-product-approvals"],
-    queryFn: async () => ({
-      pendingDeleteProductIds: [] as string[],
-      pendingUpdateProductIds: [] as string[],
-      pendingDeleteCategoryIds: [] as string[],
-      pendingDeleteTagIds: [] as string[],
-      pendingDeleteSupplyIds: [] as string[],
-      pendingUpdateSupplyIds: [] as string[],
-    }),
-  });
-}

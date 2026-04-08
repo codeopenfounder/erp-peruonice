@@ -38,7 +38,7 @@ export default function InsumosPage() {
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [tagCategoryId, setTagCategoryId] = useState<string>("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "category" | "tag"; id: string; name: string } | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [stockSupply, setStockSupply] = useState<{ id: string; name: string; unitOfMeasure?: string } | null>(null);
@@ -77,7 +77,7 @@ export default function InsumosPage() {
       getSupplyColumns({
         onView: (s) => router.push(`/inventario/insumos/${s.id}`),
         onEdit: (s) => router.push(`/inventario/insumos/${s.id}/editar`),
-        onDelete: (id) => setDeleteId(id),
+        onDelete: (id, name) => setDeleteTarget({ id, name }),
         onAddStock: (s) => setStockSupply({ id: s.id, name: s.name, unitOfMeasure: s.unit_of_measure }),
         canEdit: hasEdit,
         canDelete: hasDelete,
@@ -86,14 +86,14 @@ export default function InsumosPage() {
   );
 
   const handleDelete = async () => {
-    if (!deleteId) return;
-    const result = await deleteMutation.mutateAsync(deleteId);
+    if (!deleteTarget) return;
+    const result = await deleteMutation.mutateAsync(deleteTarget.id);
     if (result.success) {
       toast.success(result.message || "Eliminado exitosamente");
     } else {
       toast.error(typeof result.error === "string" ? result.error : "Error al eliminar");
     }
-    setDeleteId(null);
+    setDeleteTarget(null);
   };
 
   const handlePinAuthorizedDelete = async () => {
@@ -305,10 +305,10 @@ export default function InsumosPage() {
       />
 
       <PinAuthDialog
-        open={!!deleteId}
-        onOpenChange={() => setDeleteId(null)}
+        open={!!deleteTarget}
+        onOpenChange={() => setDeleteTarget(null)}
         title="Eliminar insumo"
-        description="Este insumo se desactivará permanentemente. Ingresa el PIN de un gerente para autorizar."
+        description={`"${deleteTarget?.name ?? ""}" sera eliminado del catalogo. No aparecera mas en el sistema POS ni en el ERP. Ingresa el PIN de un gerente para autorizar.`}
         onAuthorized={handlePinAuthorizedDelete}
         isLoading={deleteMutation.isPending}
       />

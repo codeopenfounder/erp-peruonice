@@ -72,7 +72,24 @@ export function useDeleteProduct() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteProduct(id),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["products"] });
+      const previous = queryClient.getQueriesData({ queryKey: ["products"] });
+      queryClient.setQueriesData(
+        { queryKey: ["products"] },
+        (old: { data: { id: string }[]; total: number } | undefined) => {
+          if (!old?.data) return old;
+          return { ...old, data: old.data.filter((p) => p.id !== id), total: Math.max(0, old.total - 1) };
+        },
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous?.forEach(([key, data]: [unknown, unknown]) =>
+        queryClient.setQueryData(key as string[], data),
+      );
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["products"] });
       queryClient.invalidateQueries({ queryKey: ["product-kpis"] });
       queryClient.invalidateQueries({ queryKey: ["categories"] });

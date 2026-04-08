@@ -19,7 +19,7 @@ import type { SupplyListItem } from "@/types/supply";
 interface SupplyColumnActions {
   onView: (supply: SupplyListItem) => void;
   onEdit: (supply: SupplyListItem) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
   onAddStock?: (supply: SupplyListItem) => void;
   canEdit?: boolean;
   canDelete?: boolean;
@@ -194,7 +194,7 @@ export function getSupplyColumns(
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => actions.onDelete(supply.id)}
+                    onClick={() => actions.onDelete(supply.id, supply.name)}
                     className="text-destructive"
                   >
                     <Trash2 className="mr-2 size-4" />

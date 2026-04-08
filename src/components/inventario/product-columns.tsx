@@ -18,7 +18,7 @@ import type { ProductListItem } from "@/types/product";
 interface ProductColumnActions {
   onView: (product: ProductListItem) => void;
   onEdit: (product: ProductListItem) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
   onAddStock?: (product: ProductListItem) => void;
   canEdit?: boolean;
   canDelete?: boolean;
@@ -193,7 +193,7 @@ export function getProductColumns(
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => actions.onDelete(product.id)}
+                    onClick={() => actions.onDelete(product.id, product.name)}
                     className="text-destructive"
                   >
                     <Trash2 className="mr-2 size-4" />

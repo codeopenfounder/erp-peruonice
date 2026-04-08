@@ -38,7 +38,7 @@ export default function ProductosPage() {
   const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [tagDialogOpen, setTagDialogOpen] = useState(false);
   const [tagCategoryId, setTagCategoryId] = useState<string>("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: "category" | "tag"; id: string; name: string } | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(null);
   const [selectedKind, setSelectedKind] = useState<string | null>(null);
@@ -80,7 +80,7 @@ export default function ProductosPage() {
       getProductColumns({
         onView: (p) => router.push(`/inventario/productos/${p.id}`),
         onEdit: (p) => router.push(`/inventario/productos/${p.id}/editar`),
-        onDelete: (id) => setDeleteId(id),
+        onDelete: (id, name) => setDeleteTarget({ id, name }),
         onAddStock: (p) => setStockProduct({ id: p.id, name: p.name, unitOfMeasure: p.unit_of_measure }),
         canEdit: hasEdit,
         canDelete: hasDelete,
@@ -89,14 +89,14 @@ export default function ProductosPage() {
   );
 
   const handleDelete = async () => {
-    if (!deleteId) return;
-    const result = await deleteMutation.mutateAsync(deleteId);
+    if (!deleteTarget) return;
+    const result = await deleteMutation.mutateAsync(deleteTarget.id);
     if (result.success) {
       toast.success(result.message || "Eliminado exitosamente");
     } else {
       toast.error(typeof result.error === "string" ? result.error : "Error al eliminar");
     }
-    setDeleteId(null);
+    setDeleteTarget(null);
   };
 
   const handlePinAuthorizedDelete = async () => {
@@ -324,10 +324,10 @@ export default function ProductosPage() {
       />
 
       <PinAuthDialog
-        open={!!deleteId}
-        onOpenChange={() => setDeleteId(null)}
+        open={!!deleteTarget}
+        onOpenChange={() => setDeleteTarget(null)}
         title="Eliminar producto"
-        description="Este producto se desactivará permanentemente. Ingresa el PIN de un gerente para autorizar."
+        description={`"${deleteTarget?.name ?? ""}" sera eliminado del catalogo. No aparecera mas en el sistema POS ni en el ERP. Ingresa el PIN de un gerente para autorizar.`}
         onAuthorized={handlePinAuthorizedDelete}
         isLoading={deleteMutation.isPending}
       />

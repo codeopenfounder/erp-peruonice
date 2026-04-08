@@ -70,7 +70,24 @@ export function useDeletePromotion() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deletePromotion(id),
-    onSuccess: () => {
+    onMutate: async (id) => {
+      await queryClient.cancelQueries({ queryKey: ["promotions"] });
+      const previous = queryClient.getQueriesData({ queryKey: ["promotions"] });
+      queryClient.setQueriesData(
+        { queryKey: ["promotions"] },
+        (old: { data: { id: string }[]; total: number } | undefined) => {
+          if (!old?.data) return old;
+          return { ...old, data: old.data.filter((p) => p.id !== id), total: Math.max(0, old.total - 1) };
+        },
+      );
+      return { previous };
+    },
+    onError: (_err, _id, context) => {
+      context?.previous?.forEach(([key, data]: [unknown, unknown]) =>
+        queryClient.setQueryData(key as string[], data),
+      );
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ["promotions"] });
       queryClient.invalidateQueries({ queryKey: ["promotion-kpis"] });
     },

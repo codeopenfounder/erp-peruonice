@@ -73,7 +73,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
   if (filters.type) query = query.eq("type", filters.type);
   if (filters.product_kind) query = query.eq("product_kind", filters.product_kind);
   if (categoryFilterIds) query = query.in("id", categoryFilterIds);
-  if (filters.is_active !== undefined) query = query.eq("is_active", filters.is_active);
+  query = query.eq("is_active", filters.is_active ?? true);
   if (filters.search) query = query.ilike("name", `%${filters.search}%`);
   // branch_id filter removed (column doesn't exist on products)
 

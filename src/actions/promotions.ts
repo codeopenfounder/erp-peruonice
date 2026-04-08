@@ -77,7 +77,7 @@ export async function getPromotions(filters: PromotionFilters): Promise<Paginate
 
   if (filters.discount_type) query = query.eq("discount_type", filters.discount_type);
   if (filters.applies_to) query = query.eq("applies_to", filters.applies_to);
-  if (filters.is_active !== undefined) query = query.eq("is_active", filters.is_active);
+  query = query.eq("is_active", filters.is_active ?? true);
   if (filters.search) query = query.ilike("name", `%${filters.search}%`);
 
   const { data, error, count } = await query;

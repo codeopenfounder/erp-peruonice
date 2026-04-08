@@ -17,7 +17,7 @@ import type { PromotionListItem } from "@/types/promotion";
 interface PromotionColumnActions {
   onView: (promo: PromotionListItem) => void;
   onEdit: (promo: PromotionListItem) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, name: string) => void;
   canEdit?: boolean;
   canDelete?: boolean;
 }
@@ -132,7 +132,7 @@ export function getPromotionColumns(actions: PromotionColumnActions): ColumnDef<
                 <>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem
-                    onClick={() => actions.onDelete(promo.id)}
+                    onClick={() => actions.onDelete(promo.id, promo.name)}
                     className="text-destructive"
                   >
                     <Trash2 className="mr-2 size-4" />

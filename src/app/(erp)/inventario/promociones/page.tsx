@@ -23,7 +23,7 @@ export default function PromocionesPage() {
   const router = useRouter();
   const { canCreate, canEdit, canDelete } = usePermissions();
   const [search, setSearch] = useState("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [page, setPage] = useState(0);
 
   // Reset page when search changes
@@ -47,7 +47,7 @@ export default function PromocionesPage() {
       getPromotionColumns({
         onView: (p) => router.push(`/inventario/promociones/${p.id}`),
         onEdit: (p) => router.push(`/inventario/promociones/${p.id}/editar`),
-        onDelete: (id) => setDeleteId(id),
+        onDelete: (id, name) => setDeleteTarget({ id, name }),
         canEdit: hasEdit,
         canDelete: hasDelete,
       }),
@@ -55,15 +55,15 @@ export default function PromocionesPage() {
   );
 
   const handleDelete = async () => {
-    if (!deleteId) return;
-    const result = await deleteMutation.mutateAsync(deleteId);
+    if (!deleteTarget) return;
+    const result = await deleteMutation.mutateAsync(deleteTarget.id);
     if (result.success) {
       const msg = "message" in result && result.message ? (result.message as string) : "Eliminado exitosamente";
       toast.success(msg);
     } else {
       toast.error(typeof result.error === "string" ? result.error : "Error al eliminar");
     }
-    setDeleteId(null);
+    setDeleteTarget(null);
   };
 
   return (
@@ -146,10 +146,10 @@ export default function PromocionesPage() {
       />
 
       <ConfirmDialog
-        open={!!deleteId}
-        onOpenChange={() => setDeleteId(null)}
-        title="Eliminar promoción"
-        description="Esta accion no se puede deshacer."
+        open={!!deleteTarget}
+        onOpenChange={() => setDeleteTarget(null)}
+        title="Eliminar promocion"
+        description={`"${deleteTarget?.name ?? ""}" sera eliminada del sistema. No aparecera mas en el POS ni en el ERP.`}
         onConfirm={handleDelete}
         variant="danger"
       />

@@ -78,7 +78,7 @@ export async function getSupplies(
     .range(from, to);
 
   if (categoryFilterIds) query = query.in("id", categoryFilterIds);
-  if (filters.is_active !== undefined) query = query.eq("is_active", filters.is_active);
+  query = query.eq("is_active", filters.is_active ?? true);
   if (filters.available_in_pos !== undefined)
     query = query.eq("available_in_pos", filters.available_in_pos);
   if (filters.search) query = query.ilike("name", `%${filters.search}%`);

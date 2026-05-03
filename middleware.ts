@@ -7,6 +7,9 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    // Skip middleware on static assets and downloadable artifacts. Anything not
+    // listed here goes through updateSession, which on unauthenticated requests
+    // returns the /login HTML — that's why .exe/.json/.bin previously broke.
+    "/((?!_next/static|_next/image|favicon.ico|api/|downloads/|manifest.json|sw.js|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|exe|bin|json|woff|woff2|ttf|otf|map|txt|xml|wasm)$).*)",
   ],
 };

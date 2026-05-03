@@ -80,7 +80,9 @@ export function CategorySidebar({
           Todas
         </button>
 
-        {categories.map((cat) => (
+        {categories
+          .filter((cat) => cat.is_active !== false)
+          .map((cat) => (
           <CategoryNode
             key={cat.id}
             category={cat}
@@ -183,7 +185,9 @@ function CategoryNode({
 
       {isExpanded && (
         <>
-          {category.tags.map((tag) => {
+          {category.tags
+            .filter((tag) => tag.is_active !== false)
+            .map((tag) => {
             const isTagPendingDelete = pendingDeleteTagIds?.has(tag.id);
             return (
               <div
@@ -221,7 +225,9 @@ function CategoryNode({
               </div>
             );
           })}
-          {category.children.map((child) => (
+          {category.children
+            .filter((child) => child.is_active !== false)
+            .map((child) => (
             <CategoryNode
               key={child.id}
               category={child}

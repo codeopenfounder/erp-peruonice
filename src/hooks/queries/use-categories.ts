@@ -66,10 +66,12 @@ export function useDeleteCategory() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteCategory(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      queryClient.invalidateQueries({ queryKey: ["products"] });
-      queryClient.invalidateQueries({ queryKey: ["product-kpis"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["categories"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["products"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["product-kpis"], type: "active" }),
+      ]);
     },
   });
 }
@@ -103,9 +105,11 @@ export function useDeleteTag() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteTag(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["categories"] });
-      queryClient.invalidateQueries({ queryKey: ["products"] });
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.refetchQueries({ queryKey: ["categories"], type: "active" }),
+        queryClient.refetchQueries({ queryKey: ["products"], type: "active" }),
+      ]);
     },
   });
 }

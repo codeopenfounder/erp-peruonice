@@ -45,8 +45,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  // If filtering by category_id, pre-fetch product IDs from M2M
-  let categoryFilterIds: string[] | null = null;
+  let assignmentFilterIds: string[] | null = null;
   if (filters.category_id) {
     const { data: catProducts } = await supabase
       .from("product_category_assignments")
@@ -56,7 +55,25 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
     if (ids.length === 0) {
       return { data: [], total: 0, page, pageSize, totalPages: 0 };
     }
-    categoryFilterIds = ids;
+    assignmentFilterIds = ids;
+  }
+
+  if (filters.tag_id) {
+    const { data: tagProducts } = await supabase
+      .from("product_tag_assignments")
+      .select("product_id")
+      .eq("tag_id", filters.tag_id);
+    const ids = new Set((tagProducts || []).map((tp) => tp.product_id));
+
+    if (assignmentFilterIds) {
+      assignmentFilterIds = assignmentFilterIds.filter((id) => ids.has(id));
+    } else {
+      assignmentFilterIds = Array.from(ids);
+    }
+
+    if (assignmentFilterIds.length === 0) {
+      return { data: [], total: 0, page, pageSize, totalPages: 0 };
+    }
   }
 
   let query = supabase
@@ -72,7 +89,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
 
   if (filters.type) query = query.eq("type", filters.type);
   if (filters.product_kind) query = query.eq("product_kind", filters.product_kind);
-  if (categoryFilterIds) query = query.in("id", categoryFilterIds);
+  if (assignmentFilterIds) query = query.in("id", assignmentFilterIds);
   query = query.eq("is_active", filters.is_active ?? true);
   if (filters.search) query = query.ilike("name", `%${filters.search}%`);
   // branch_id filter removed (column doesn't exist on products)
@@ -83,7 +100,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
   const productIds = (data || []).map((p) => p.id);
 
   // Batch-fetch categories via M2M
-  let categoriesMap: Record<string, { id: string; name: string }[]> = {};
+  const categoriesMap: Record<string, { id: string; name: string }[]> = {};
   if (productIds.length > 0) {
     const { data: catAssignments } = await supabase
       .from("product_category_assignments")
@@ -98,7 +115,7 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
   }
 
   // Batch-fetch tags via M2M
-  let tagsMap: Record<string, { id: string; name: string; color: string | null }[]> = {};
+  const tagsMap: Record<string, { id: string; name: string; color: string | null }[]> = {};
   if (productIds.length > 0) {
     const { data: assignments } = await supabase
       .from("product_tag_assignments")
@@ -116,42 +133,22 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
   const compositeIds = (data || []).filter(p => p.product_kind === "composite").map(p => p.id);
   const compositeStockMap: Record<string, number> = {};
   if (compositeIds.length > 0) {
-    for (const cid of compositeIds) {
+    const calculatedStocks = await Promise.all(compositeIds.map(async (cid) => {
       try {
         const { data: calcStock } = await supabase.rpc("fn_calculate_composite_stock", { p_product_id: cid });
-        if (typeof calcStock === "number") {
-          compositeStockMap[cid] = calcStock;
-          // Also update the stored value so other views see it
-          await supabase.from("products").update({ stock_quantity: calcStock }).eq("id", cid);
-        }
+        const stock = typeof calcStock === "number" ? calcStock : Number(calcStock);
+        return [cid, Number.isFinite(stock) ? stock : null] as const;
       } catch {
-        // Non-critical: fallback to stored value
+        return [cid, null] as const;
       }
-    }
+    }));
+
+    calculatedStocks.forEach(([cid, calcStock]) => {
+      if (calcStock !== null) compositeStockMap[cid] = calcStock;
+    });
   }
 
   const total = count ?? 0;
-
-  if (filters.tag_id) {
-    const filteredIds = new Set(
-      Object.entries(tagsMap)
-        .filter(([, tags]) => tags.some((t) => t.id === filters.tag_id))
-        .map(([id]) => id)
-    );
-    const filtered = (data || []).filter((p) => filteredIds.has(p.id));
-    return {
-      data: filtered.map((p) => ({
-        ...p,
-        stock_quantity: compositeStockMap[p.id] ?? p.stock_quantity,
-        categories: categoriesMap[p.id] || [],
-        tags: tagsMap[p.id] || [],
-      })) as ProductListItem[],
-      total: filtered.length,
-      page,
-      pageSize,
-      totalPages: Math.ceil(filtered.length / pageSize),
-    };
-  }
 
   return {
     data: (data || []).map((p) => ({

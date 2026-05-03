@@ -19,8 +19,8 @@ import { CategorySidebar } from "@/components/inventario/category-sidebar";
 import { CategoryDialog } from "@/components/inventario/category-dialog";
 import { TagDialog } from "@/components/inventario/tag-dialog";
 import { getProductColumns } from "@/components/inventario/product-columns";
-import { useProducts, useProductKPIs, useDeleteProduct } from "@/hooks/queries/use-products";
-import { useCategories, useDeleteCategory, useDeleteTag } from "@/hooks/queries/use-categories";
+import { useProducts, useProductKPIs, useDeleteProduct, usePrefetchProducts } from "@/hooks/queries/use-products";
+import { useCategories, useDeleteCategory, useDeleteTag, usePrefetchCategories } from "@/hooks/queries/use-categories";
 import { useBranchesForSelect } from "@/hooks/queries/use-branches";
 import { exportToExcel } from "@/lib/utils/export-excel";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -63,9 +63,16 @@ export default function ServiciosPage() {
   const { data: kpis, isLoading: isLoadingKPIs } = useProductKPIs();
   const { data: categories, isLoading: isLoadingCategories } = useCategories("service");
   const { data: branches } = useBranchesForSelect();
+  const prefetchProducts = usePrefetchProducts();
+  const prefetchCategories = usePrefetchCategories();
   const deleteMutation = useDeleteProduct();
   const deleteCategoryMutation = useDeleteCategory();
   const deleteTagMutation = useDeleteTag();
+
+  useEffect(() => {
+    void prefetchProducts({ type: "product", page: 1, page_size: PAGE_SIZE });
+    void prefetchCategories("product");
+  }, [prefetchProducts, prefetchCategories]);
 
   const hasEdit = canEdit("inventario.servicios");
   const hasDelete = canDelete("inventario.servicios");

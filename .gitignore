@@ -42,3 +42,9 @@ next-env.d.ts
 
 # firecrawl cache
 .firecrawl/
+
+# playwright auth state (contains tokens)
+/e2e/.auth/
+/test-results/
+/playwright-report/
+/.playwright-mcp/

@@ -2,15 +2,15 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function AuthInitializer() {
   const router = useRouter();
-  const queryClient = useQueryClient();
 
   useEffect(() => {
+    let cancelled = false;
+
     async function init() {
       const supabase = createClient();
       const {
@@ -18,11 +18,13 @@ export function AuthInitializer() {
       } = await supabase.auth.getUser();
 
       if (!user) {
+        if (cancelled) return;
         useAuthStore.getState().clearAuth();
         router.push("/login");
         return;
       }
 
+      if (cancelled) return;
       useAuthStore.getState().setUser({
         id: user.id,
         email: user.email ?? "",
@@ -44,6 +46,7 @@ export function AuthInitializer() {
           return;
         }
 
+        if (cancelled) return;
         useAuthStore.getState().setProfile(profile);
 
         // Fetch tenant
@@ -55,6 +58,7 @@ export function AuthInitializer() {
             .single();
 
           if (tenant) {
+            if (cancelled) return;
             useAuthStore.getState().setTenant(tenant);
           }
         }
@@ -66,18 +70,20 @@ export function AuthInitializer() {
           .eq("user_id", user.id);
 
         if (perms) {
+          if (cancelled) return;
           useAuthStore.getState().setPermissions(perms);
         }
       }
 
+      if (cancelled) return;
       useAuthStore.getState().setLoading(false);
-
-      // Invalidar queries para que refetchen con la sesion activa
-      queryClient.invalidateQueries();
     }
 
     init();
-  }, [router, queryClient]);
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   return null;
 }

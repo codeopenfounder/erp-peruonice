@@ -1,7 +1,39 @@
 import { NextResponse } from "next/server";
+import { ApiPeruError, postApiPeru } from "@/lib/apiperu";
 
 const CACHE_TTL = 3600000; // 1 hour
 let cache: { data: Record<string, unknown>; timestamp: number } | null = null;
+
+interface ApiPeruExchangeRateData {
+  moneda?: string;
+  fecha_busqueda?: string;
+  venta?: number | string;
+  compra?: number | string;
+  date?: string;
+  sale?: number | string;
+  purchase?: number | string;
+}
+
+async function getApiPeruExchangeRate(fecha: string) {
+  try {
+    return await postApiPeru<ApiPeruExchangeRateData>(
+      "/tipo-de-cambio",
+      { fecha },
+      { revalidate: 3600 },
+    );
+  } catch (err) {
+    // The docs currently show /tipo-de-cambio in the endpoint section and
+    // /tipo_de_cambio in the PHP sample. Keep a narrow fallback for that drift.
+    if (err instanceof ApiPeruError && err.status === 404) {
+      return postApiPeru<ApiPeruExchangeRateData>(
+        "/tipo_de_cambio",
+        { fecha },
+        { revalidate: 3600 },
+      );
+    }
+    throw err;
+  }
+}
 
 export async function GET() {
   try {
@@ -9,24 +41,7 @@ export async function GET() {
       return NextResponse.json(cache.data);
     }
 
-    const apiKey = process.env.FACTILIZA_API_KEY;
-    if (!apiKey) {
-      if (cache) return NextResponse.json(cache.data);
-      return NextResponse.json(
-        { success: false, error: "FACTILIZA_API_KEY not configured" },
-        { status: 500 },
-      );
-    }
-
     const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
-    const res = await fetch(
-      `https://api.factiliza.com/v1/tipocambio/info/dia?fecha=${today}`,
-      {
-        headers: { Authorization: `Bearer ${apiKey}` },
-        next: { revalidate: 3600 },
-      },
-    );
-
     const fallback = {
       success: true,
       compra: 3.7,
@@ -36,27 +51,20 @@ export async function GET() {
       source: "fallback",
     };
 
-    if (!res.ok) {
+    const { data: rateData } = await getApiPeruExchangeRate(today);
+    if (!rateData) {
       if (cache) return NextResponse.json(cache.data);
       cache = { data: fallback, timestamp: Date.now() };
       return NextResponse.json(fallback);
     }
 
-    const json = await res.json();
-
-    if (!json.success || !json.data) {
-      if (cache) return NextResponse.json(cache.data);
-      cache = { data: fallback, timestamp: Date.now() };
-      return NextResponse.json(fallback);
-    }
-
-    const compra = parseFloat(json.data.compra);
-    const venta = parseFloat(json.data.venta);
+    const compra = Number(rateData.compra ?? rateData.purchase);
+    const venta = Number(rateData.venta ?? rateData.sale);
 
     if (isNaN(compra) || isNaN(venta)) {
       if (cache) return NextResponse.json(cache.data);
       return NextResponse.json(
-        { success: false, error: "Invalid rate values from Factiliza" },
+        { success: false, error: "Invalid rate values from ApiPeru" },
         { status: 502 },
       );
     }
@@ -66,13 +74,17 @@ export async function GET() {
       compra: Math.round(compra * 10000) / 10000,
       venta: Math.round(venta * 10000) / 10000,
       rate: Math.round(((compra + venta) / 2) * 10000) / 10000,
-      fecha: json.data.fecha || today,
-      source: "factiliza-sbs",
+      fecha: rateData.fecha_busqueda || rateData.date || today,
+      source: "apiperu-sbs",
     };
 
     cache = { data, timestamp: Date.now() };
     return NextResponse.json(data);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiPeruError && err.status === 500 && !cache) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status });
+    }
+
     if (cache) return NextResponse.json(cache.data);
     const fallbackData = {
       success: true,

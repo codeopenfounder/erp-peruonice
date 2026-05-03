@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getCategories,
@@ -11,6 +12,8 @@ import {
   deleteTag,
 } from "@/actions/categories";
 
+const INVENTORY_STALE_TIME = 5 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -19,7 +22,19 @@ export function useCategories(type?: string) {
   return useQuery({
     queryKey: ["categories", type],
     queryFn: () => getCategories(type),
+    staleTime: INVENTORY_STALE_TIME,
   });
+}
+
+export function usePrefetchCategories() {
+  const queryClient = useQueryClient();
+
+  return useCallback((type?: string) =>
+    queryClient.prefetchQuery({
+      queryKey: ["categories", type],
+      queryFn: () => getCategories(type),
+      staleTime: INVENTORY_STALE_TIME,
+    }), [queryClient]);
 }
 
 // ---------------------------------------------------------------------------

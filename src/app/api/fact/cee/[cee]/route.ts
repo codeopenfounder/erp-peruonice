@@ -1,3 +1,6 @@
+// CEE (Carnet de Extranjería) sigue usando Factiliza: ApiPeru.dev no expone
+// un endpoint para CEE (solo DNI, RUC, tipo de cambio y CPE). Si en el futuro
+// ApiPeru agrega /cee, migrar este archivo replicando el patrón de dni/route.ts.
 import { NextResponse } from "next/server";
 import { validateFactUser } from "@/lib/fact-auth";
 

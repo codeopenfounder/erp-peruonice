@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from "@tanstack/react-query";
 import {
   getProducts,
@@ -12,6 +13,8 @@ import {
 } from "@/actions/products";
 import type { ProductFilters } from "@/types/product";
 
+const INVENTORY_STALE_TIME = 5 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -21,6 +24,7 @@ export function useProducts(filters: ProductFilters) {
     queryKey: ["products", filters],
     queryFn: () => getProducts(filters),
     placeholderData: keepPreviousData,
+    staleTime: INVENTORY_STALE_TIME,
   });
 }
 
@@ -36,7 +40,19 @@ export function useProductKPIs() {
   return useQuery({
     queryKey: ["product-kpis"],
     queryFn: () => getProductKPIs(),
+    staleTime: INVENTORY_STALE_TIME,
   });
+}
+
+export function usePrefetchProducts() {
+  const queryClient = useQueryClient();
+
+  return useCallback((filters: ProductFilters) =>
+    queryClient.prefetchQuery({
+      queryKey: ["products", filters],
+      queryFn: () => getProducts(filters),
+      staleTime: INVENTORY_STALE_TIME,
+    }), [queryClient]);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,4 +156,3 @@ export function useRecipeItems(productId: string) {
     enabled: !!productId,
   });
 }
-

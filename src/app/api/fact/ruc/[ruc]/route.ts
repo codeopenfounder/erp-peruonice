@@ -1,5 +1,20 @@
 import { NextResponse } from "next/server";
 import { validateFactUser } from "@/lib/fact-auth";
+import { ApiPeruError, postApiPeru } from "@/lib/apiperu";
+
+interface ApiPeruRucData {
+  ruc?: string;
+  nombre_o_razon_social?: string;
+  direccion?: string;
+  direccion_completa?: string;
+  estado?: string;
+  condicion?: string;
+  departamento?: string;
+  provincia?: string;
+  distrito?: string;
+  ubigeo_sunat?: string;
+  ubigeo?: string[];
+}
 
 export async function GET(
   request: Request,
@@ -17,34 +32,9 @@ export async function GET(
       );
     }
 
-    const apiKey = process.env.FACTILIZA_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { success: false, error: "FACTILIZA_API_KEY no configurada" },
-        { status: 500 },
-      );
-    }
+    const { data } = await postApiPeru<ApiPeruRucData>("/ruc", { ruc });
 
-    // Query Factiliza API for RUC info
-    const apiUrl = `https://api.factiliza.com/v1/ruc/info/${ruc}`;
-    const response = await fetch(apiUrl, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { success: false, error: `Error consultando RUC: ${response.status}` },
-        { status: 502 },
-      );
-    }
-
-    const raw = await response.json();
-    const factData = raw.data;
-
-    if (!factData) {
+    if (!data) {
       return NextResponse.json(
         { success: false, error: "No se encontraron datos para este RUC" },
         { status: 404 },
@@ -54,19 +44,23 @@ export async function GET(
     return NextResponse.json({
       success: true,
       data: {
-        ruc: factData.numero || ruc,
-        razon_social: factData.nombre_o_razon_social || null,
+        ruc: data.ruc || ruc,
+        razon_social: data.nombre_o_razon_social || null,
         nombre_comercial: null,
-        direccion: factData.direccion_completa || null,
-        ubigeo: factData.ubigeo_sunat || null,
-        departamento: factData.departamento || null,
-        provincia: factData.provincia || null,
-        distrito: factData.distrito || null,
-        estado: factData.estado || null,
-        condicion: factData.condicion || null,
+        direccion: data.direccion_completa || data.direccion || null,
+        ubigeo: data.ubigeo_sunat || data.ubigeo?.[2] || null,
+        departamento: data.departamento || null,
+        provincia: data.provincia || null,
+        distrito: data.distrito || null,
+        estado: data.estado || null,
+        condicion: data.condicion || null,
       },
     });
   } catch (err: unknown) {
+    if (err instanceof ApiPeruError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status });
+    }
+
     const message = err instanceof Error ? err.message : "Error interno";
     const status =
       message.includes("token") || message.includes("authorized") ? 401 : 500;

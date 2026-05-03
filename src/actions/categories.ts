@@ -29,6 +29,19 @@ async function getTenantId() {
 
 const INVENTORY_MODULES = ["inventario.productos", "inventario.servicios"];
 
+function formatInventoryLabelError(error: { code?: string; message: string }) {
+  if (error.code === "23505") {
+    if (error.message.includes("idx_product_tags_unique_name")) {
+      return "Ya existe una etiqueta activa con ese nombre en esta categoria.";
+    }
+    if (error.message.includes("idx_product_categories_unique_name")) {
+      return "Ya existe una categoria activa con ese nombre en el mismo nivel.";
+    }
+  }
+
+  return error.message;
+}
+
 // ---------------------------------------------------------------------------
 // Categories
 // ---------------------------------------------------------------------------
@@ -40,6 +53,7 @@ export async function getCategories(type?: string): Promise<CategoryWithTags[]> 
     .from("product_categories")
     .select("*")
     .eq("tenant_id", tenantId)
+    .eq("is_active", true)
     .order("sort_order", { ascending: true })
     .order("name", { ascending: true });
 
@@ -50,23 +64,43 @@ export async function getCategories(type?: string): Promise<CategoryWithTags[]> 
   const { data: categories, error } = await query;
   if (error) throw new Error(error.message);
 
-  const { data: tags } = await supabase
+  const categoryIds = (categories || []).map((c) => c.id);
+  if (categoryIds.length === 0) return [];
+
+  const tagsQuery = supabase
     .from("product_tags")
     .select("*")
     .eq("tenant_id", tenantId)
-    .order("sort_order", { ascending: true });
+    .eq("is_active", true)
+    .in("category_id", categoryIds)
+    .order("sort_order", { ascending: true })
+    .order("name", { ascending: true });
 
-  // Count products per category via M2M
-  const categoryIds = (categories || []).map((c) => c.id);
-  const { data: productCounts } = await supabase
-    .from("product_category_assignments")
-    .select("category_id, product_id")
-    .in("category_id", categoryIds.length > 0 ? categoryIds : ["00000000-0000-0000-0000-000000000000"]);
+  const countQuery =
+    type === "supply"
+      ? supabase
+          .from("supply_category_assignments")
+          .select("category_id, supplies!inner(id)")
+          .in("category_id", categoryIds)
+          .eq("supplies.tenant_id", tenantId)
+          .eq("supplies.is_active", true)
+      : supabase
+          .from("product_category_assignments")
+          .select("category_id, products!inner(id)")
+          .in("category_id", categoryIds)
+          .eq("products.tenant_id", tenantId)
+          .eq("products.is_active", true);
+
+  if (type === "product" || type === "service") {
+    countQuery.eq("products.type", type);
+  }
+
+  const [{ data: tags }, { data: itemCounts }] = await Promise.all([tagsQuery, countQuery]);
 
   const countMap: Record<string, number> = {};
-  (productCounts || []).forEach((p) => {
-    if (p.category_id) {
-      countMap[p.category_id] = (countMap[p.category_id] || 0) + 1;
+  (itemCounts || []).forEach((item) => {
+    if (item.category_id) {
+      countMap[item.category_id] = (countMap[item.category_id] || 0) + 1;
     }
   });
 
@@ -135,7 +169,7 @@ export async function updateCategory(id: string, input: unknown) {
     .update(parsed.data)
     .eq("id", id);
 
-  if (error) return { success: false as const, error: error.message };
+  if (error) return { success: false as const, error: formatInventoryLabelError(error) };
 
   revalidatePath("/inventario");
   return { success: true as const };
@@ -162,7 +196,7 @@ export async function deleteCategory(id: string) {
     .from("product_categories")
     .update({ is_active: false })
     .eq("id", id);
-  if (error) return { success: false as const, error: error.message };
+  if (error) return { success: false as const, error: formatInventoryLabelError(error) };
 
   void notifyModuleAction({
     tenantId,
@@ -209,7 +243,7 @@ export async function createTag(input: unknown) {
     .select()
     .single();
 
-  if (error) return { success: false as const, error: error.message };
+  if (error) return { success: false as const, error: formatInventoryLabelError(error) };
 
   revalidatePath("/inventario");
   return { success: true as const, tagId: data.id };
@@ -228,7 +262,7 @@ export async function updateTag(id: string, input: unknown) {
     .update(parsed.data)
     .eq("id", id);
 
-  if (error) return { success: false as const, error: error.message };
+  if (error) return { success: false as const, error: formatInventoryLabelError(error) };
 
   revalidatePath("/inventario");
   return { success: true as const };

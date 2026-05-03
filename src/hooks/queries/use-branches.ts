@@ -30,6 +30,7 @@ export function useBranchesForSelect() {
   return useQuery({
     queryKey: ["branches-select"],
     queryFn: () => getBranchesForSelect(),
+    staleTime: 10 * 60 * 1000,
   });
 }
 

@@ -51,8 +51,7 @@ export async function getSupplies(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  // If filtering by category_id, pre-fetch supply IDs from M2M
-  let categoryFilterIds: string[] | null = null;
+  let assignmentFilterIds: string[] | null = null;
   if (filters.category_id) {
     const { data: catSupplies } = await supabase
       .from("supply_category_assignments")
@@ -62,7 +61,25 @@ export async function getSupplies(
     if (ids.length === 0) {
       return { data: [], total: 0, page, pageSize, totalPages: 0 };
     }
-    categoryFilterIds = ids;
+    assignmentFilterIds = ids;
+  }
+
+  if (filters.tag_id) {
+    const { data: tagSupplies } = await supabase
+      .from("supply_tag_assignments")
+      .select("supply_id")
+      .eq("tag_id", filters.tag_id);
+    const ids = new Set((tagSupplies || []).map((st) => st.supply_id));
+
+    if (assignmentFilterIds) {
+      assignmentFilterIds = assignmentFilterIds.filter((id) => ids.has(id));
+    } else {
+      assignmentFilterIds = Array.from(ids);
+    }
+
+    if (assignmentFilterIds.length === 0) {
+      return { data: [], total: 0, page, pageSize, totalPages: 0 };
+    }
   }
 
   let query = supabase
@@ -77,7 +94,7 @@ export async function getSupplies(
     .order("created_at", { ascending: false })
     .range(from, to);
 
-  if (categoryFilterIds) query = query.in("id", categoryFilterIds);
+  if (assignmentFilterIds) query = query.in("id", assignmentFilterIds);
   query = query.eq("is_active", filters.is_active ?? true);
   if (filters.available_in_pos !== undefined)
     query = query.eq("available_in_pos", filters.available_in_pos);
@@ -124,27 +141,6 @@ export async function getSupplies(
   }
 
   const total = count ?? 0;
-
-  // Client-side tag filter (same approach as products)
-  if (filters.tag_id) {
-    const filteredIds = new Set(
-      Object.entries(tagsMap)
-        .filter(([, tags]) => tags.some((t) => t.id === filters.tag_id))
-        .map(([id]) => id),
-    );
-    const filtered = (data || []).filter((s) => filteredIds.has(s.id));
-    return {
-      data: filtered.map((s) => ({
-        ...s,
-        categories: categoriesMap[s.id] || [],
-        tags: tagsMap[s.id] || [],
-      })) as SupplyListItem[],
-      total: filtered.length,
-      page,
-      pageSize,
-      totalPages: Math.ceil(filtered.length / pageSize),
-    };
-  }
 
   return {
     data: (data || []).map((s) => ({

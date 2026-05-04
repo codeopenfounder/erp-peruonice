@@ -291,16 +291,22 @@ export async function createCashRegister(input: unknown) {
     return { success: false as const, error: (e as Error).message };
   }
 
-  const { data: codeResult } = await supabase.rpc("fn_generate_cash_register_code", {
+  const { data: codeResult, error: codeError } = await supabase.rpc("fn_generate_cash_register_code", {
     p_tenant_id: tenantId,
   });
+  if (codeError || !codeResult) {
+    return {
+      success: false as const,
+      error: `No se pudo generar el código de la caja registradora: ${codeError?.message ?? "respuesta vacía del servidor"}`,
+    };
+  }
 
   const { data: register, error } = await supabase
     .from("cash_registers")
     .insert({
       tenant_id: tenantId,
       name: parsed.data.name,
-      code: codeResult || "CAJA-01",
+      code: codeResult,
       branch_id: parsed.data.branch_id || null,
       is_active: true,
     })

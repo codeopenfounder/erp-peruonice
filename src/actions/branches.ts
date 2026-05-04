@@ -167,10 +167,16 @@ export async function createBranch(input: unknown) {
   const data = parsed.data;
 
   // Generate code
-  const { data: codeResult } = await supabase.rpc("fn_generate_branch_code", {
+  const { data: codeResult, error: codeError } = await supabase.rpc("fn_generate_branch_code", {
     p_tenant_id: tenantId,
   });
-  const code = codeResult || `BRN-${Date.now()}`;
+  if (codeError || !codeResult) {
+    return {
+      success: false as const,
+      error: `No se pudo generar el código de la sede: ${codeError?.message ?? "respuesta vacía del servidor"}`,
+    };
+  }
+  const code = codeResult;
 
   const { error } = await supabase.from("branches").insert({
     tenant_id: tenantId,

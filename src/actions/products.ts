@@ -325,11 +325,17 @@ export async function createProduct(input: unknown) {
   const isService = rest.type === "service";
 
   // Generate SKU
-  const { data: skuResult } = await supabase.rpc("fn_generate_product_sku", {
+  const { data: skuResult, error: skuError } = await supabase.rpc("fn_generate_product_sku", {
     p_tenant_id: tenantId,
     p_type: rest.type,
   });
-  const sku = skuResult || `${isService ? "SRV" : "PRD"}-00001`;
+  if (skuError || !skuResult) {
+    return {
+      success: false as const,
+      error: `No se pudo generar el SKU del ${isService ? "servicio" : "producto"}: ${skuError?.message ?? "respuesta vacía del servidor"}`,
+    };
+  }
+  const sku = skuResult;
 
   // Generate or validate barcode for products only (not services)
   let barcode: string | null = null;

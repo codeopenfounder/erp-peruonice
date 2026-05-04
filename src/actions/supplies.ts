@@ -293,10 +293,16 @@ export async function createSupply(input: unknown) {
   } = parsed.data;
 
   // Generate SKU
-  const { data: skuResult } = await supabase.rpc("fn_generate_supply_sku", {
+  const { data: skuResult, error: skuError } = await supabase.rpc("fn_generate_supply_sku", {
     p_tenant_id: tenantId,
   });
-  const sku = skuResult || "INS-00001";
+  if (skuError || !skuResult) {
+    return {
+      success: false as const,
+      error: `No se pudo generar el SKU del insumo: ${skuError?.message ?? "respuesta vacía del servidor"}`,
+    };
+  }
+  const sku = skuResult;
 
   // Insert supply as active directly
   const { data: supply, error } = await supabase

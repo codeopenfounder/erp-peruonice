@@ -215,7 +215,7 @@ export async function POST(request: Request) {
         // Customers for invoicing
         adminClient
           .from("customers")
-          .select("id, document_type, document_number, legal_name, trade_name, address, ubigeo, email, phone")
+          .select("id, document_type, document_number, legal_name, trade_name, address, ubigeo, email, phone, is_active")
           .eq("tenant_id", ctx.tenantId)
           .eq("is_active", true),
 

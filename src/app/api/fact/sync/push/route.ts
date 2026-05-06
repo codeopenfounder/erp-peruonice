@@ -97,7 +97,7 @@ export async function POST(request: Request) {
 
     // Upsert customers from poi-fact
     const customerResults: { id: string; success: boolean }[] = [];
-    for (const cust of (body.customers || []) as Array<{id: string; document_type: string; document_number: string; legal_name: string; trade_name?: string; address?: string; ubigeo?: string; email?: string; phone?: string}>) {
+    for (const cust of (body.customers || []) as Array<{id: string; document_type: string; document_number: string; legal_name: string; trade_name?: string; address?: string; ubigeo?: string; email?: string; phone?: string; is_active?: boolean}>) {
       try {
         await adminClient.from("customers").upsert({
           id: cust.id,
@@ -110,6 +110,7 @@ export async function POST(request: Request) {
           ubigeo: cust.ubigeo || null,
           email: cust.email || null,
           phone: cust.phone || null,
+          is_active: cust.is_active ?? true,
         }, { onConflict: "id" });
         customerResults.push({ id: cust.id, success: true });
       } catch {

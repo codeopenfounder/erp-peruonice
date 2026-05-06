@@ -205,7 +205,25 @@ function FactConfigForm() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Proveedor</Label>
-            <Input value="API Sunat" disabled />
+            <Select
+              value={formData.provider}
+              onValueChange={(v) =>
+                setFormData((f) => ({ ...f, provider: v }))
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Selecciona proveedor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="apisunat">API Sunat (apisunat.pe)</SelectItem>
+                <SelectItem value="bilme">Bilme (billmeperu.com)</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {formData.provider === "bilme"
+                ? "Token de empresa Bilme. XML/CDR se almacenan en Supabase."
+                : "Token Bearer de apisunat.pe. XML/CDR servidos por el proveedor."}
+            </p>
           </div>
           <div className="space-y-2">
             <Label>Token API</Label>
@@ -213,8 +231,15 @@ function FactConfigForm() {
               type="password"
               value={formData.api_token}
               onChange={(e) => setFormData((f) => ({ ...f, api_token: e.target.value }))}
-              placeholder="Token de acceso"
+              placeholder={
+                formData.provider === "bilme"
+                  ? "Token de empresa Bilme"
+                  : "Token de acceso apisunat"
+              }
             />
+            <p className="text-xs text-muted-foreground">
+              Cambiar de proveedor solo afecta nuevos comprobantes. Los anteriores conservan sus URLs originales.
+            </p>
           </div>
         </div>
 

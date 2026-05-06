@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
-import { submitToSunat } from "@/lib/sunat/apisunat";
+import { getSunatProvider } from "@/lib/sunat/factory";
 
 /**
  * Auto-retry SUNAT submission for invoices stuck in 'issued' status.
@@ -22,14 +22,23 @@ async function autoRetrySunat(tenantId: string) {
   if (!stuckInvoices?.length) return;
 
   // Get fact config
-  const { data: factConfig } = await adminClient
+  const { data: factConfigRaw } = await adminClient
     .from("fact_config")
-    .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production")
+    .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
     .single();
 
-  if (!factConfig?.api_token) return;
+  if (!factConfigRaw?.api_token) return;
+
+  const factConfig = { ...factConfigRaw, tenant_id: tenantId };
+  let provider;
+  try {
+    provider = getSunatProvider(factConfig.provider);
+  } catch (err) {
+    console.error("[auto-retry] Invalid provider:", err);
+    return;
+  }
 
   for (const inv of stuckInvoices) {
     try {
@@ -115,7 +124,7 @@ async function autoRetrySunat(tenantId: string) {
         customer_document_type: customerDocType || null,
         customer_document_number: customerDocNumber || null,
         customer_name: customerName || null,
-        customer_address: customerAddress || branchAddress || factConfig?.direccion_fiscal || null,
+        customer_address: customerAddress || branchAddress || factConfig.direccion_fiscal || null,
         op_gravada: inv.op_gravada,
         op_exonerada: inv.op_exonerada,
         op_inafecta: inv.op_inafecta,
@@ -139,7 +148,7 @@ async function autoRetrySunat(tenantId: string) {
         created_at: inv.created_at,
       };
 
-      await submitToSunat(factConfig, inv.id, invoiceForSunat);
+      await provider.submit(factConfig, inv.id, invoiceForSunat);
     } catch (err) {
       console.error(`[auto-retry] SUNAT retry failed for ${inv.id}:`, err);
     }

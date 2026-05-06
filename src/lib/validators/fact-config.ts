@@ -8,7 +8,7 @@ export const factConfigSchema = z.object({
   departamento: z.string().optional().or(z.literal("")),
   provincia: z.string().optional().or(z.literal("")),
   distrito: z.string().optional().or(z.literal("")),
-  provider: z.literal("apisunat"),
+  provider: z.enum(["apisunat", "bilme"]),
   api_token: z.string().optional().or(z.literal("")),
   logo_url: z.string().optional().or(z.literal("")),
   is_production: z.boolean(),

@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { broadcastBatchStockUpdate } from "@/lib/stock-broadcast";
-import { submitToSunat } from "@/lib/sunat/apisunat";
+import { getSunatProvider } from "@/lib/sunat/factory";
 
 /** Convert empty strings to null (prevents "invalid input syntax for type uuid" errors). */
 function nullIfEmpty(v: unknown): string | null {
@@ -600,14 +600,16 @@ export async function POST(request: Request) {
         if (sunatDocTypes.includes(inv.document_type)) {
           try {
             // Get fact config for SUNAT submission
-            const { data: factConfig } = await adminClient
+            const { data: factConfigRaw } = await adminClient
               .from("fact_config")
-              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production")
+              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
               .eq("tenant_id", ctx.tenantId)
               .eq("is_active", true)
               .single();
 
-            if (factConfig?.api_token) {
+            if (factConfigRaw?.api_token) {
+              const factConfig = { ...factConfigRaw, tenant_id: ctx.tenantId };
+              const provider = getSunatProvider(factConfig.provider);
               // Get series code
               const { data: seriesData } = await adminClient
                 .from("invoice_series")
@@ -656,7 +658,7 @@ export async function POST(request: Request) {
                 }
               }
 
-              const resolvedAddress = inv.customer_address || branchAddress || factConfig?.direccion_fiscal || null;
+              const resolvedAddress = inv.customer_address || branchAddress || factConfig.direccion_fiscal || null;
 
               // Lookup cost_prices for supply items (SUNAT valor referencial for gratuito items)
               const supplyIds = inv.items.filter(i => i.supply_id).map(i => i.supply_id!);
@@ -712,7 +714,7 @@ export async function POST(request: Request) {
                   .eq("id", inserted.id);
               }
 
-              sunatResult = await submitToSunat(factConfig, inserted.id, invoiceForSunat);
+              sunatResult = await provider.submit(factConfig, inserted.id, invoiceForSunat);
             }
           } catch (sunatErr) {
             // SUNAT submission failure should not fail the sync

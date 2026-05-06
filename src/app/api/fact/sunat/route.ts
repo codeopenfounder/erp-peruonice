@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
-import { submitToSunat, voidDocument, checkStatus } from "@/lib/sunat/apisunat";
+import { getSunatProvider } from "@/lib/sunat/factory";
 
 export async function POST(request: Request) {
   try {
@@ -35,19 +35,22 @@ export async function POST(request: Request) {
     }
 
     // Get fact config
-    const { data: factConfig } = await adminClient
+    const { data: factConfigRaw } = await adminClient
       .from("fact_config")
-      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production")
+      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
       .eq("tenant_id", ctx.tenantId)
       .eq("is_active", true)
       .single();
 
-    if (!factConfig?.api_token) {
+    if (!factConfigRaw?.api_token) {
       return NextResponse.json(
         { success: false, error: "Configuracion SUNAT no encontrada" },
         { status: 400 },
       );
     }
+
+    const factConfig = { ...factConfigRaw, tenant_id: ctx.tenantId };
+    const provider = getSunatProvider(factConfig.provider);
 
     // Get series code (needed for all actions)
     const { data: seriesData } = await adminClient
@@ -75,7 +78,7 @@ export async function POST(request: Request) {
 
       const reason = body?.reason || "Anulación de la operación";
       const authorization = body?.authorization;
-      const result = await voidDocument(
+      const result = await provider.void(
         factConfig,
         invoice.document_type,
         seriesCode,
@@ -407,7 +410,7 @@ export async function POST(request: Request) {
         created_at: invoice.created_at,
       };
 
-      const result = await submitToSunat(factConfig, invoice.id, invoiceForSunat);
+      const result = await provider.submit(factConfig, invoice.id, invoiceForSunat);
 
       return NextResponse.json({
         success: result.success,
@@ -423,7 +426,7 @@ export async function POST(request: Request) {
 
     if (action === "status") {
       // Check status at SUNAT via API
-      const result = await checkStatus(
+      const result = await provider.status(
         factConfig,
         invoice.document_type,
         seriesCode,

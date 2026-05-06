@@ -5,15 +5,19 @@ import { ApiPeruError, postApiPeru } from "@/lib/apiperu";
 interface ApiPeruRucData {
   ruc?: string;
   nombre_o_razon_social?: string;
+  razon_social?: string;
+  nombre?: string;
   direccion?: string;
   direccion_completa?: string;
+  direccion_simple?: string;
+  domicilio_fiscal?: string;
   estado?: string;
   condicion?: string;
   departamento?: string;
   provincia?: string;
   distrito?: string;
   ubigeo_sunat?: string;
-  ubigeo?: string[];
+  ubigeo?: string[] | string;
 }
 
 export async function GET(
@@ -41,14 +45,30 @@ export async function GET(
       );
     }
 
+    const direccion =
+      data.direccion_completa ??
+      data.domicilio_fiscal ??
+      data.direccion ??
+      data.direccion_simple ??
+      null;
+    const razonSocial =
+      data.nombre_o_razon_social ??
+      data.razon_social ??
+      data.nombre ??
+      null;
+    const ubigeo =
+      data.ubigeo_sunat ??
+      (Array.isArray(data.ubigeo) ? data.ubigeo[2] : data.ubigeo) ??
+      null;
+
     return NextResponse.json({
       success: true,
       data: {
         ruc: data.ruc || ruc,
-        razon_social: data.nombre_o_razon_social || null,
+        razon_social: razonSocial,
         nombre_comercial: null,
-        direccion: data.direccion_completa || data.direccion || null,
-        ubigeo: data.ubigeo_sunat || data.ubigeo?.[2] || null,
+        direccion,
+        ubigeo,
         departamento: data.departamento || null,
         provincia: data.provincia || null,
         distrito: data.distrito || null,

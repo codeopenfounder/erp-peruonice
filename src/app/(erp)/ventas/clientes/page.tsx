@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
+import { toast } from "sonner";
 import {
   Users,
   Building2,
@@ -23,12 +24,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getCustomerColumns } from "@/components/ventas/customer-columns";
 import {
   useCustomers,
   useCustomerKPIs,
+  useDeleteCustomer,
 } from "@/hooks/queries/use-ventas";
-import type { CustomerFilters } from "@/types/invoice";
+import { useAuthStore } from "@/stores/auth-store";
+import { hasModulePermission } from "@/lib/auth/permissions";
+import type { CustomerFilters, CustomerListItem } from "@/types/invoice";
 
 const PAGE_SIZE = 50;
 
@@ -37,6 +51,8 @@ export default function ClientesPage() {
   const [search, setSearch] = useState("");
   const [docType, setDocType] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  const [customerToDelete, setCustomerToDelete] =
+    useState<CustomerListItem | null>(null);
 
   // Reset page on filter change
   useEffect(() => {
@@ -55,8 +71,34 @@ export default function ClientesPage() {
   // Queries
   const { data: kpis, isLoading: isLoadingKPIs } = useCustomerKPIs();
   const { data: customerData, isLoading: isLoadingCustomers, isFetching } = useCustomers(filters);
+  const deleteMutation = useDeleteCustomer();
 
-  const columns = useMemo(() => getCustomerColumns(), []);
+  // Permissions
+  const profile = useAuthStore((s) => s.profile);
+  const permissions = useAuthStore((s) => s.permissions);
+  const canDelete =
+    profile?.is_owner === true ||
+    hasModulePermission(permissions, "ventas.clientes", "delete");
+
+  const columns = useMemo(
+    () =>
+      getCustomerColumns({
+        onDelete: (c) => setCustomerToDelete(c),
+        canDelete,
+      }),
+    [canDelete]
+  );
+
+  const handleConfirmDelete = async () => {
+    if (!customerToDelete) return;
+    const res = await deleteMutation.mutateAsync(customerToDelete.id);
+    if (res.success) {
+      toast.success(res.message || "Cliente eliminado");
+    } else {
+      toast.error(typeof res.error === "string" ? res.error : "Error al eliminar");
+    }
+    setCustomerToDelete(null);
+  };
 
   const totalPages = customerData
     ? Math.ceil(customerData.total / PAGE_SIZE)
@@ -166,6 +208,41 @@ export default function ClientesPage() {
           />
         </>
       )}
+
+      <AlertDialog
+        open={!!customerToDelete}
+        onOpenChange={(open) => !open && setCustomerToDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar cliente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {customerToDelete && (
+                <>
+                  Se ocultará a{" "}
+                  <strong className="text-foreground">
+                    {customerToDelete.legal_name}
+                  </strong>{" "}
+                  ({customerToDelete.document_number}) del directorio. Las
+                  facturas y reservas existentes conservarán sus datos.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteMutation.isPending}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteMutation.isPending ? "Eliminando…" : "Eliminar"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

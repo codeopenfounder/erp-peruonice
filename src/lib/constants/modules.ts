@@ -30,7 +30,7 @@ export const ALL_MODULES: ModuleDefinition[] = [
   // Ventas
   { code: "ventas.transacciones", label: "Transacciones", description: "Registro de transacciones de venta", area: "ventas", availableActions: ["view"] },
   { code: "ventas.comprobantes", label: "Comprobantes", description: "Visualización de comprobantes emitidos", area: "ventas", availableActions: ["view"] },
-  { code: "ventas.clientes", label: "Clientes", description: "Gestión de clientes y datos fiscales", area: "ventas", availableActions: ["view"] },
+  { code: "ventas.clientes", label: "Clientes", description: "Gestión de clientes y datos fiscales", area: "ventas", availableActions: ["view", "delete"] },
   // Reservas
   { code: "reservas.horarios", label: "Horarios", description: "Horarios de atención de servicios", area: "reservas", availableActions: ["view", "create", "edit", "delete"] },
   { code: "reservas.reservas", label: "Reservas", description: "Gestión de reservas de clientes", area: "reservas", availableActions: ["view", "create", "edit", "delete"] },

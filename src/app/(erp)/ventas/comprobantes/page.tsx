@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useMemo, useEffect, Suspense } from "react";
+import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { toast } from "sonner";
 import {
   DollarSign,
   FileText,
@@ -9,7 +10,6 @@ import {
   FileWarning,
   Search,
 } from "lucide-react";
-import { getTodayPeru } from "@/lib/date-utils";
 import { PageHeader } from "@/components/ui/page-header";
 import { KpiCard } from "@/components/kpi/kpi-card";
 import { KpiGrid } from "@/components/kpi/kpi-grid";
@@ -30,6 +30,9 @@ import {
   useInvoiceKPIs,
 } from "@/hooks/queries/use-ventas";
 import { useCashRegisterStatuses } from "@/hooks/queries/use-gastos";
+import { getInvoicePdfData } from "@/actions/ventas";
+import { downloadComprobantePdf } from "@/lib/pdf/comprobante-pdf";
+import type { DocumentType } from "@/lib/pdf/sunat-format";
 import type { InvoiceFilters } from "@/types/invoice";
 
 const PAGE_SIZE = 50;
@@ -90,7 +93,66 @@ function ComprobantesContent() {
   const { data: invoiceData, isLoading: isLoadingInvoices, isFetching } = useInvoices(filters);
   const { data: registers } = useCashRegisterStatuses();
 
-  const columns = useMemo(() => getInvoiceColumns((id) => setDetailId(id)), []);
+  const handleDownloadPdf = useCallback(async (invoiceId: string) => {
+    const toastId = toast.loading("Generando PDF…");
+    try {
+      const payload = await getInvoicePdfData(invoiceId);
+      if (!payload) {
+        toast.error("Comprobante no encontrado", { id: toastId });
+        return;
+      }
+      const { invoice, emisor } = payload;
+      await downloadComprobantePdf({
+        emisor,
+        comprobante: {
+          documentType: invoice.document_type as DocumentType,
+          seriesCode: invoice.series_code,
+          correlative: invoice.correlative_number,
+          issueDate: invoice.created_at || invoice.issue_date,
+          currency: invoice.currency,
+          paymentMethod: invoice.payment_method ?? "cash",
+          referenceDoc: null,
+          referenceReason: invoice.reference_reason,
+          hashCode: invoice.hash_code,
+          cashierName: invoice.cashier_name,
+          branchName: invoice.branch_name,
+        },
+        customer: invoice.customer_name
+          ? {
+              name: invoice.customer_name,
+              docType: invoice.customer_document_type ?? "sin_documento",
+              docNumber: invoice.customer_document_number ?? "",
+              address: invoice.customer_address ?? null,
+            }
+          : null,
+        items: invoice.items.map((it) => ({
+          description: it.description,
+          quantity: Number(it.quantity),
+          unitPrice: Number(it.unit_price),
+          discountAmount: Number(it.discount_amount),
+          total: Number(it.total),
+          isCortesia: it.is_cortesia,
+        })),
+        totals: {
+          opGravada: Number(invoice.op_gravada),
+          opExonerada: Number(invoice.op_exonerada),
+          opInafecta: Number(invoice.op_inafecta),
+          igvTotal: Number(invoice.igv_total),
+          discountTotal: Number(invoice.discount_total),
+          total: Number(invoice.total),
+        },
+      });
+      toast.success("PDF descargado", { id: toastId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Error al generar PDF";
+      toast.error(msg, { id: toastId });
+    }
+  }, []);
+
+  const columns = useMemo(
+    () => getInvoiceColumns((id) => setDetailId(id), handleDownloadPdf),
+    [handleDownloadPdf]
+  );
 
   const totalPages = invoiceData
     ? Math.ceil(invoiceData.total / PAGE_SIZE)

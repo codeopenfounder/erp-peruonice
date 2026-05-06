@@ -106,6 +106,10 @@ export interface Invoice {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  customer_name: string | null;
+  customer_document_type: string | null;
+  customer_document_number: string | null;
+  customer_address: string | null;
 }
 
 export interface InvoiceItem {

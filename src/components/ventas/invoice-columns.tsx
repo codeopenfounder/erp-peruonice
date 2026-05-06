@@ -1,7 +1,7 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Eye, Copy, ExternalLink, MoreHorizontal } from "lucide-react";
+import { Eye, Copy, ExternalLink, Download, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -52,7 +52,8 @@ function getDaysRemaining(issueDate: string, docType: string, status: string): n
 }
 
 export function getInvoiceColumns(
-  onView: (id: string) => void
+  onView: (id: string) => void,
+  onDownloadPdf: (id: string) => void
 ): ColumnDef<InvoiceListItem>[] {
   return [
     {
@@ -152,6 +153,10 @@ export function getInvoiceColumns(
             <DropdownMenuItem onClick={() => onView(row.original.id)}>
               <Eye className="mr-2 size-3.5" />
               Ver detalle
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onDownloadPdf(row.original.id)}>
+              <Download className="mr-2 size-3.5" />
+              Descargar PDF
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => {

@@ -1,12 +1,18 @@
 "use client";
 
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
 import {
   getInvoices,
   getInvoiceKPIs,
   getInvoiceDetail,
   getCustomers,
   getCustomerKPIs,
+  deleteCustomer,
 } from "@/actions/ventas";
 import type { InvoiceFilters, CustomerFilters } from "@/types/invoice";
 
@@ -45,5 +51,18 @@ export function useCustomerKPIs() {
   return useQuery({
     queryKey: ["customer-kpis"],
     queryFn: () => getCustomerKPIs(),
+  });
+}
+
+export function useDeleteCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteCustomer(id),
+    onSuccess: (res) => {
+      if (res.success) {
+        qc.invalidateQueries({ queryKey: ["customers"] });
+        qc.invalidateQueries({ queryKey: ["customer-kpis"] });
+      }
+    },
   });
 }

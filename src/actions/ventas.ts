@@ -1,6 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { requirePermission } from "@/lib/auth/check-permission";
+import { notifyModuleAction } from "@/actions/notifications";
 import type {
   InvoiceKPIs,
   InvoiceListItem,
@@ -10,6 +13,16 @@ import type {
   CustomerFilters,
   CustomerKPIs,
 } from "@/types/invoice";
+
+export interface InvoicePdfPayload {
+  invoice: InvoiceDetail;
+  emisor: {
+    ruc: string;
+    razonSocial: string;
+    direccion: string;
+    logoUrl: string | null;
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -336,6 +349,98 @@ export async function getInvoiceDetail(
 }
 
 // ---------------------------------------------------------------------------
+// Invoice PDF data (detalle + datos del emisor desde fact_config)
+// ---------------------------------------------------------------------------
+export async function getInvoicePdfData(
+  invoiceId: string
+): Promise<InvoicePdfPayload | null> {
+  const { supabase, tenantId } = await requirePermission(
+    "ventas.comprobantes",
+    "view"
+  );
+
+  const { data: invoice, error } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("id", invoiceId)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (error || !invoice) return null;
+
+  const { data: items } = await supabase
+    .from("invoice_items")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .order("sort_order");
+
+  let seriesCode = "";
+  if (invoice.series_id) {
+    const { data: series } = await supabase
+      .from("invoice_series")
+      .select("series_code")
+      .eq("id", invoice.series_id)
+      .single();
+    seriesCode = series?.series_code ?? "";
+  }
+
+  let cashRegisterName: string | null = null;
+  let branchName: string | null = null;
+  if (invoice.cash_register_id) {
+    const { data: register } = await supabase
+      .from("cash_registers")
+      .select("name, branch_id")
+      .eq("id", invoice.cash_register_id)
+      .single();
+    if (register) {
+      cashRegisterName = register.name;
+      if (register.branch_id) {
+        const { data: branch } = await supabase
+          .from("branches")
+          .select("name")
+          .eq("id", register.branch_id)
+          .single();
+        branchName = branch?.name ?? null;
+      }
+    }
+  }
+
+  let cashierName: string | null = null;
+  if (invoice.cashier_id) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("full_name")
+      .eq("id", invoice.cashier_id)
+      .single();
+    cashierName = profile?.full_name ?? null;
+  }
+
+  const { data: factConfig } = await supabase
+    .from("fact_config")
+    .select("ruc, razon_social, direccion_fiscal, logo_url")
+    .eq("tenant_id", tenantId)
+    .single();
+
+  const emisor = {
+    ruc: factConfig?.ruc ?? "",
+    razonSocial: factConfig?.razon_social ?? "",
+    direccion: factConfig?.direccion_fiscal ?? "",
+    logoUrl: factConfig?.logo_url ?? null,
+  };
+
+  return {
+    invoice: {
+      ...invoice,
+      series_code: seriesCode,
+      cash_register_name: cashRegisterName,
+      branch_name: branchName,
+      cashier_name: cashierName,
+      items: items || [],
+    },
+    emisor,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Customer KPIs
 // ---------------------------------------------------------------------------
 export async function getCustomerKPIs(): Promise<CustomerKPIs> {
@@ -422,4 +527,50 @@ export async function getCustomers(
   }));
 
   return { data, total: count ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Soft-delete customer
+// ---------------------------------------------------------------------------
+export async function deleteCustomer(id: string) {
+  let supabase, tenantId, userId;
+  try {
+    ({ supabase, tenantId, userId } = await requirePermission(
+      "ventas.clientes",
+      "delete"
+    ));
+  } catch (e) {
+    return { success: false as const, error: (e as Error).message };
+  }
+
+  const { data: customer } = await supabase
+    .from("customers")
+    .select("legal_name, document_number")
+    .eq("id", id)
+    .eq("tenant_id", tenantId)
+    .single();
+  if (!customer) {
+    return { success: false as const, error: "Cliente no encontrado" };
+  }
+
+  const { error } = await supabase
+    .from("customers")
+    .update({ is_active: false })
+    .eq("id", id)
+    .eq("tenant_id", tenantId);
+  if (error) return { success: false as const, error: error.message };
+
+  void notifyModuleAction({
+    tenantId,
+    actorId: userId,
+    moduleCodes: ["ventas.clientes"],
+    title: "Cliente eliminado",
+    message: `Se eliminó el cliente "${customer.legal_name}" (${customer.document_number}).`,
+    resourceType: "customer",
+    resourceId: id,
+    type: "info",
+  }).catch((e) => console.error("[deleteCustomer] notify error:", e));
+
+  revalidatePath("/ventas/clientes");
+  return { success: true as const, message: "Cliente eliminado." };
 }

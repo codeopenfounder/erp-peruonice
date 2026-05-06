@@ -1,6 +1,14 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
+import { MoreHorizontal, Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { CustomerListItem } from "@/types/invoice";
 
 const DOC_TYPE_CONFIG: Record<string, { label: string; className: string }> = {
@@ -26,8 +34,13 @@ const DOC_TYPE_CONFIG: Record<string, { label: string; className: string }> = {
   },
 };
 
-export function getCustomerColumns(): ColumnDef<CustomerListItem>[] {
-  return [
+export function getCustomerColumns(opts?: {
+  onDelete?: (customer: CustomerListItem) => void;
+  canDelete?: boolean;
+}): ColumnDef<CustomerListItem>[] {
+  const { onDelete, canDelete } = opts ?? {};
+
+  const baseColumns: ColumnDef<CustomerListItem>[] = [
     {
       accessorKey: "document_type",
       header: "Tipo",
@@ -111,4 +124,31 @@ export function getCustomerColumns(): ColumnDef<CustomerListItem>[] {
       ),
     },
   ];
+
+  if (canDelete && onDelete) {
+    baseColumns.push({
+      id: "actions",
+      header: "",
+      cell: ({ row }) => (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="size-8">
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => onDelete(row.original)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="mr-2 size-3.5" />
+              Eliminar
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      ),
+    });
+  }
+
+  return baseColumns;
 }

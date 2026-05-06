@@ -11,6 +11,9 @@ import {
 } from "@/actions/gastos";
 import type { GastosFilters, ClosingHistoryFilters } from "@/types/gastos";
 
+const TRANSACTIONAL_STALE_MS = 30 * 1000;
+const REPORT_STALE_MS = 5 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -19,6 +22,7 @@ export function useGastosKPIs(date?: string) {
   return useQuery({
     queryKey: ["gastos-kpis", date],
     queryFn: () => getGastosKPIs(date),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -26,6 +30,7 @@ export function useCashRegisterStatuses() {
   return useQuery({
     queryKey: ["cash-register-statuses"],
     queryFn: () => getCashRegisterStatuses(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -34,6 +39,7 @@ export function useGastosMovements(filters: GastosFilters) {
     queryKey: ["gastos-movements", filters],
     queryFn: () => getGastosMovements(filters),
     placeholderData: keepPreviousData,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -42,6 +48,7 @@ export function useClosingHistory(filters?: ClosingHistoryFilters) {
     queryKey: ["closing-history", filters],
     queryFn: () => getClosingHistory(filters),
     placeholderData: keepPreviousData,
+    staleTime: REPORT_STALE_MS,
   });
 }
 
@@ -50,6 +57,7 @@ export function useDailyReport(date: string, cashRegisterId?: string) {
     queryKey: ["daily-report", date, cashRegisterId],
     queryFn: () => getDailyReport(date, cashRegisterId),
     enabled: !!date,
+    staleTime: REPORT_STALE_MS,
   });
 }
 

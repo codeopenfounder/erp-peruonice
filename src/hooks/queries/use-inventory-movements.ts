@@ -18,6 +18,7 @@ export function useInventoryMovements(filters: InventoryMovementFilters) {
     queryKey: ["inventory-movements", filters],
     queryFn: () => getInventoryMovements(filters),
     placeholderData: keepPreviousData,
+    staleTime: 30_000,
   });
 }
 
@@ -34,6 +35,7 @@ export function useMovementKPIs() {
   return useQuery({
     queryKey: ["movement-kpis"],
     queryFn: () => getMovementKPIs(),
+    staleTime: 30_000,
   });
 }
 

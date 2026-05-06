@@ -129,22 +129,16 @@ export async function getProducts(filters: ProductFilters): Promise<PaginatedRes
     });
   }
 
-  // Recalculate stock for composite products (based on supply availability)
+  // Recalculate stock for composite products in a single RPC call
   const compositeIds = (data || []).filter(p => p.product_kind === "composite").map(p => p.id);
   const compositeStockMap: Record<string, number> = {};
   if (compositeIds.length > 0) {
-    const calculatedStocks = await Promise.all(compositeIds.map(async (cid) => {
-      try {
-        const { data: calcStock } = await supabase.rpc("fn_calculate_composite_stock", { p_product_id: cid });
-        const stock = typeof calcStock === "number" ? calcStock : Number(calcStock);
-        return [cid, Number.isFinite(stock) ? stock : null] as const;
-      } catch {
-        return [cid, null] as const;
-      }
-    }));
-
-    calculatedStocks.forEach(([cid, calcStock]) => {
-      if (calcStock !== null) compositeStockMap[cid] = calcStock;
+    const { data: bulk } = await supabase.rpc("fn_calculate_composite_stocks_bulk", {
+      p_product_ids: compositeIds,
+    });
+    (bulk as { product_id: string; stock: number | string }[] | null | undefined)?.forEach((row) => {
+      const stock = typeof row.stock === "number" ? row.stock : Number(row.stock);
+      if (Number.isFinite(stock)) compositeStockMap[row.product_id] = stock;
     });
   }
 

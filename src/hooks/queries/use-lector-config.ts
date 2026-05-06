@@ -9,10 +9,13 @@ import {
   getEmployeesForLectorAssignment,
 } from "@/actions/lector-config";
 
+const CONFIG_STALE_MS = 10 * 60 * 1000;
+
 export function useLectorUsers() {
   return useQuery({
     queryKey: ["lector-users"],
     queryFn: () => getLectorUsers(),
+    staleTime: CONFIG_STALE_MS,
   });
 }
 
@@ -20,6 +23,7 @@ export function useEmployeesForLector() {
   return useQuery({
     queryKey: ["employees-for-lector"],
     queryFn: () => getEmployeesForLectorAssignment(),
+    staleTime: CONFIG_STALE_MS,
   });
 }
 

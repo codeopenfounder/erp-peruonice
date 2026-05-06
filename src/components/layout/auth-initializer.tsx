@@ -30,52 +30,49 @@ export function AuthInitializer() {
         email: user.email ?? "",
       });
 
-      // Fetch profile
       const { data: profile } = await supabase
         .from("profiles")
-        .select("*")
+        .select(
+          `
+          *,
+          tenant:tenant_id(*),
+          permissions:user_permissions(module_code, can_view, can_create, can_edit, can_delete)
+        `
+        )
         .eq("id", user.id)
         .single();
 
-      if (profile) {
-        // Block disabled users
-        if (!profile.is_active) {
-          await supabase.auth.signOut();
-          useAuthStore.getState().clearAuth();
-          window.location.href = "/login?error=Tu cuenta ha sido deshabilitada. Contacta al administrador.";
-          return;
-        }
-
+      if (!profile) {
         if (cancelled) return;
-        useAuthStore.getState().setProfile(profile);
+        useAuthStore.getState().setLoading(false);
+        return;
+      }
 
-        // Fetch tenant
-        if (profile.tenant_id) {
-          const { data: tenant } = await supabase
-            .from("tenants")
-            .select("*")
-            .eq("id", profile.tenant_id)
-            .single();
-
-          if (tenant) {
-            if (cancelled) return;
-            useAuthStore.getState().setTenant(tenant);
-          }
-        }
-
-        // Fetch user permissions
-        const { data: perms } = await supabase
-          .from("user_permissions")
-          .select("module_code, can_view, can_create, can_edit, can_delete")
-          .eq("user_id", user.id);
-
-        if (perms) {
-          if (cancelled) return;
-          useAuthStore.getState().setPermissions(perms);
-        }
+      if (!profile.is_active) {
+        await supabase.auth.signOut();
+        useAuthStore.getState().clearAuth();
+        window.location.href =
+          "/login?error=Tu cuenta ha sido deshabilitada. Contacta al administrador.";
+        return;
       }
 
       if (cancelled) return;
+
+      const { tenant, permissions, ...profileFields } = profile as typeof profile & {
+        tenant: unknown;
+        permissions: unknown;
+      };
+
+      useAuthStore.getState().setProfile(profileFields as never);
+
+      if (tenant) {
+        useAuthStore.getState().setTenant(tenant as never);
+      }
+
+      if (Array.isArray(permissions)) {
+        useAuthStore.getState().setPermissions(permissions as never);
+      }
+
       useAuthStore.getState().setLoading(false);
     }
 

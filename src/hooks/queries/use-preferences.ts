@@ -7,6 +7,7 @@ export function usePreferences() {
   return useQuery({
     queryKey: ["preferences"],
     queryFn: () => getPreferences(),
+    staleTime: 30 * 60 * 1000,
   });
 }
 

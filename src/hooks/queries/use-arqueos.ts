@@ -11,10 +11,13 @@ import {
 } from "@/actions/arqueos";
 import type { ArqueoFilters } from "@/types/arqueo";
 
+const TRANSACTIONAL_STALE_MS = 30 * 1000;
+
 export function useArqueoKPIs() {
   return useQuery({
     queryKey: ["arqueo-kpis"],
     queryFn: () => getArqueoKPIs(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -23,6 +26,7 @@ export function useArqueos(filters: ArqueoFilters) {
     queryKey: ["arqueos", filters],
     queryFn: () => getArqueos(filters),
     placeholderData: (prev) => prev,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -31,6 +35,7 @@ export function useArqueoDetail(id: string) {
     queryKey: ["arqueo-detail", id],
     queryFn: () => getArqueoDetail(id),
     enabled: !!id,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -39,6 +44,7 @@ export function useArqueoMovements(arqueoId: string) {
     queryKey: ["arqueo-movements", arqueoId],
     queryFn: () => getArqueoMovements(arqueoId),
     enabled: !!arqueoId,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -47,6 +53,7 @@ export function useOpenRegisterSummary(cashRegisterId: string | null) {
     queryKey: ["open-register-summary", cashRegisterId],
     queryFn: () => getOpenRegisterSummary(cashRegisterId!),
     enabled: !!cashRegisterId,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 

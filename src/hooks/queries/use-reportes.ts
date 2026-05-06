@@ -20,6 +20,7 @@ export function useReporteSabanaVentas(filters: ReportFilters, enabled: boolean)
     queryFn: () => getReporteSabanaVentas(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -29,6 +30,7 @@ export function useReporteControlFugas(filters: ReportFilters, enabled: boolean)
     queryFn: () => getReporteControlFugas(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -38,6 +40,7 @@ export function useReporteRendimientoCatalogo(filters: ReportFilters, enabled: b
     queryFn: () => getReporteRendimientoCatalogo(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -47,6 +50,7 @@ export function useReporteControlCaja(filters: ReportFilters, enabled: boolean) 
     queryFn: () => getReporteControlCaja(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -56,6 +60,7 @@ export function useReporteRendimientoPromos(filters: ReportFilters, enabled: boo
     queryFn: () => getReporteRendimientoPromos(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -65,6 +70,7 @@ export function useReporteInventarioValorizado(filters: ReportFilters, enabled: 
     queryFn: () => getReporteInventarioValorizado(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -74,6 +80,7 @@ export function useReporteTraficoVsEntradas(filters: ReportFilters, enabled: boo
     queryFn: () => getReporteTraficoVsEntradas(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -83,6 +90,7 @@ export function useReporteKardexInventario(filters: ReportFilters, enabled: bool
     queryFn: () => getReporteKardexInventario(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }
 
@@ -92,5 +100,6 @@ export function useReporteInventarioValorizadoV2(filters: ReportFilters, enabled
     queryFn: () => getReporteInventarioValorizadoV2(filters),
     enabled,
     placeholderData: keepPreviousData,
+    staleTime: 5 * 60 * 1000,
   })
 }

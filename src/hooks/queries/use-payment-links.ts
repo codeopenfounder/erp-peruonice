@@ -9,10 +9,13 @@ import {
 } from "@/actions/payment-links";
 import type { PaymentLinkFilters } from "@/types/payment-link";
 
+const TRANSACTIONAL_STALE_MS = 30 * 1000;
+
 export function usePaymentLinkKPIs() {
   return useQuery({
     queryKey: ["payment-link-kpis"],
     queryFn: () => getPaymentLinkKPIs(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -21,6 +24,7 @@ export function usePaymentLinks(filters: PaymentLinkFilters) {
     queryKey: ["payment-links", filters],
     queryFn: () => getPaymentLinks(filters),
     placeholderData: (prev) => prev,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -29,6 +33,7 @@ export function usePaymentLinkDetail(id: string) {
     queryKey: ["payment-link-detail", id],
     queryFn: () => getPaymentLinkDetail(id),
     enabled: !!id,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 

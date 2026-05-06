@@ -106,26 +106,24 @@ async function getModuleUsers(
   tenantId: string,
   moduleCodes: string[],
 ): Promise<string[]> {
+  const [permsRes, ownersRes] = await Promise.all([
+    supabase
+      .from("user_permissions")
+      .select("user_id")
+      .eq("tenant_id", tenantId)
+      .in("module_code", moduleCodes)
+      .eq("can_view", true),
+    supabase
+      .from("profiles")
+      .select("id")
+      .eq("tenant_id", tenantId)
+      .eq("is_owner", true)
+      .eq("is_active", true),
+  ]);
+
   const userIds = new Set<string>();
-
-  // Users with view permission on any of the given modules
-  const { data: perms } = await supabase
-    .from("user_permissions")
-    .select("user_id")
-    .eq("tenant_id", tenantId)
-    .in("module_code", moduleCodes)
-    .eq("can_view", true);
-  (perms || []).forEach((p: { user_id: string }) => userIds.add(p.user_id));
-
-  // Owners always get notifications
-  const { data: owners } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("tenant_id", tenantId)
-    .eq("is_owner", true)
-    .eq("is_active", true);
-  (owners || []).forEach((o: { id: string }) => userIds.add(o.id));
-
+  (permsRes.data || []).forEach((p: { user_id: string }) => userIds.add(p.user_id));
+  (ownersRes.data || []).forEach((o: { id: string }) => userIds.add(o.id));
   return [...userIds];
 }
 

@@ -1,19 +1,48 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import {
   Tabs,
   TabsList,
   TabsTrigger,
   TabsContent,
 } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useDashboardFilters } from "./dashboard-filters-provider";
 import { BarChart3, ShoppingBag, Users, ShieldAlert, Banknote } from "lucide-react";
 
-import { VentasPanel } from "./ventas/ventas-panel";
-import { ProductosPanel } from "./productos/productos-panel";
-import { AsistenciaPanel } from "./asistencia/asistencia-panel";
-import { OperativaPanel } from "./operativa/operativa-panel";
-import { GastosPanel } from "./gastos/gastos-panel";
+const PanelSkeleton = () => (
+  <div className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-4">
+      <Skeleton className="h-24" />
+      <Skeleton className="h-24" />
+      <Skeleton className="h-24" />
+      <Skeleton className="h-24" />
+    </div>
+    <Skeleton className="h-80" />
+  </div>
+);
+
+const VentasPanel = dynamic(
+  () => import("./ventas/ventas-panel").then((m) => ({ default: m.VentasPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> },
+);
+const ProductosPanel = dynamic(
+  () => import("./productos/productos-panel").then((m) => ({ default: m.ProductosPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> },
+);
+const AsistenciaPanel = dynamic(
+  () => import("./asistencia/asistencia-panel").then((m) => ({ default: m.AsistenciaPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> },
+);
+const OperativaPanel = dynamic(
+  () => import("./operativa/operativa-panel").then((m) => ({ default: m.OperativaPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> },
+);
+const GastosPanel = dynamic(
+  () => import("./gastos/gastos-panel").then((m) => ({ default: m.GastosPanel })),
+  { ssr: false, loading: () => <PanelSkeleton /> },
+);
 
 const TABS = [
   { value: "ventas", label: "Ventas", icon: BarChart3 },

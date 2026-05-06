@@ -17,11 +17,15 @@ import type { ScheduleFilters } from "@/types/reservation";
 // Queries
 // ---------------------------------------------------------------------------
 
+const CATALOG_STALE_MS = 10 * 60 * 1000;
+const SLOT_STALE_MS = 60 * 1000;
+
 export function useSchedules(filters: ScheduleFilters) {
   return useQuery({
     queryKey: ["schedules", filters],
     queryFn: () => getSchedules(filters),
     placeholderData: keepPreviousData,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -30,6 +34,7 @@ export function useSchedule(id: string) {
     queryKey: ["schedule", id],
     queryFn: () => getScheduleById(id),
     enabled: !!id,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -38,6 +43,7 @@ export function useSchedulesByProduct(productId: string) {
     queryKey: ["schedules-by-product", productId],
     queryFn: () => getSchedulesByProduct(productId),
     enabled: !!productId,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -45,6 +51,7 @@ export function useScheduleKPIs() {
   return useQuery({
     queryKey: ["schedule-kpis"],
     queryFn: () => getScheduleKPIs(),
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -53,6 +60,7 @@ export function useAvailableSlots(productId: string, branchId: string, date: str
     queryKey: ["available-slots", productId, branchId, date],
     queryFn: () => getAvailableSlots(productId, branchId, date),
     enabled: !!productId && !!branchId && !!date,
+    staleTime: SLOT_STALE_MS,
   });
 }
 

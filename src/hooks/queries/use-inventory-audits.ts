@@ -10,10 +10,13 @@ import {
 } from "@/actions/inventory-audits";
 import type { AuditFilters } from "@/types/inventory-audit";
 
+const TRANSACTIONAL_STALE_MS = 60 * 1000;
+
 export function useAuditKPIs() {
   return useQuery({
     queryKey: ["audit-kpis"],
     queryFn: () => getAuditKPIs(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -22,6 +25,7 @@ export function useAudits(filters: AuditFilters) {
     queryKey: ["audits", filters],
     queryFn: () => getAudits(filters),
     placeholderData: keepPreviousData,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -30,6 +34,7 @@ export function useAudit(id: string) {
     queryKey: ["audit", id],
     queryFn: () => getAuditById(id),
     enabled: !!id,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 

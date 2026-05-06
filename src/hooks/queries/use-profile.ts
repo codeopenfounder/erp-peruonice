@@ -11,6 +11,7 @@ export function useCurrentProfile() {
   return useQuery({
     queryKey: ["current-profile"],
     queryFn: () => getCurrentProfile(),
+    staleTime: 10 * 60 * 1000,
   });
 }
 

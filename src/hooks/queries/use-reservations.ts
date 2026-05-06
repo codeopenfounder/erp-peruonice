@@ -11,6 +11,8 @@ import {
 } from "@/actions/reservations";
 import type { ReservationFilters } from "@/types/reservation";
 
+const TRANSACTIONAL_STALE_MS = 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -20,6 +22,7 @@ export function useReservations(filters: ReservationFilters) {
     queryKey: ["reservations", filters],
     queryFn: () => getReservations(filters),
     placeholderData: keepPreviousData,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -34,6 +37,7 @@ export function useReservationsBySlot(
     queryKey: ["reservations-slot", productId, branchId, date, slotStart, slotEnd],
     queryFn: () => getReservationsBySlot(productId, branchId, date, slotStart, slotEnd),
     enabled: !!productId && !!branchId && !!date && !!slotStart,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -47,6 +51,7 @@ export function useReservationsByDateRange(
     queryKey: ["reservations-daterange", productId, branchId, startDate, endDate],
     queryFn: () => getReservationsByDateRange(productId, branchId, startDate, endDate),
     enabled: !!startDate && !!endDate,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -54,6 +59,7 @@ export function useReservationKPIs() {
   return useQuery({
     queryKey: ["reservation-kpis"],
     queryFn: () => getReservationKPIs(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 

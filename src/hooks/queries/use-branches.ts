@@ -11,11 +11,14 @@ import {
 } from "@/actions/branches";
 import type { BranchFilters, CreateBranchInput, UpdateBranchInput } from "@/types/branch";
 
+const CATALOG_STALE_MS = 10 * 60 * 1000;
+
 // Queries
 export function useBranches(filters: BranchFilters = {}) {
   return useQuery({
     queryKey: ["branches", filters],
     queryFn: () => getBranches(filters),
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -23,6 +26,7 @@ export function useBranchKPIs() {
   return useQuery({
     queryKey: ["branch-kpis"],
     queryFn: () => getBranchKPIs(),
+    staleTime: CATALOG_STALE_MS,
   });
 }
 

@@ -16,11 +16,14 @@ import type { SupplyFilters } from "@/types/supply";
 // Queries
 // ---------------------------------------------------------------------------
 
+const CATALOG_STALE_MS = 5 * 60 * 1000;
+
 export function useSupplies(filters: SupplyFilters) {
   return useQuery({
     queryKey: ["supplies", filters],
     queryFn: () => getSupplies(filters),
     placeholderData: keepPreviousData,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -29,6 +32,7 @@ export function useSupply(id: string) {
     queryKey: ["supply", id],
     queryFn: () => getSupplyById(id),
     enabled: !!id,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -36,6 +40,7 @@ export function useSupplyKPIs() {
   return useQuery({
     queryKey: ["supply-kpis"],
     queryFn: () => getSupplyKPIs(),
+    staleTime: CATALOG_STALE_MS,
   });
 }
 

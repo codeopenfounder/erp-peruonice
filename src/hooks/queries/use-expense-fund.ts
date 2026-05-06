@@ -12,10 +12,13 @@ import type { ExpenseFundFilters } from "@/types/gastos";
 // Queries
 // ---------------------------------------------------------------------------
 
+const TRANSACTIONAL_STALE_MS = 30 * 1000;
+
 export function useExpenseFundStatus() {
   return useQuery({
     queryKey: ["expense-fund-status"],
     queryFn: () => getExpenseFundStatus(),
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 
@@ -24,6 +27,7 @@ export function useExpenseFundMovements(filters?: ExpenseFundFilters) {
     queryKey: ["expense-fund-movements", filters],
     queryFn: () => getExpenseFundMovements(filters),
     placeholderData: keepPreviousData,
+    staleTime: TRANSACTIONAL_STALE_MS,
   });
 }
 

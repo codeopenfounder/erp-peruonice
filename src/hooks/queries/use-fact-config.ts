@@ -19,9 +19,11 @@ import {
   getEmployeesForFactAssignment,
 } from "@/actions/fact-config";
 
+const CONFIG_STALE_MS = 10 * 60 * 1000;
+
 // Config
 export function useFactConfig() {
-  return useQuery({ queryKey: ["fact-config"], queryFn: getFactConfig });
+  return useQuery({ queryKey: ["fact-config"], queryFn: getFactConfig, staleTime: CONFIG_STALE_MS });
 }
 
 export function useSaveFactConfig() {
@@ -34,7 +36,7 @@ export function useSaveFactConfig() {
 
 // Series
 export function useInvoiceSeries() {
-  return useQuery({ queryKey: ["invoice-series"], queryFn: getInvoiceSeries });
+  return useQuery({ queryKey: ["invoice-series"], queryFn: getInvoiceSeries, staleTime: CONFIG_STALE_MS });
 }
 
 export function useCreateInvoiceSeries() {
@@ -64,7 +66,7 @@ export function useDeleteInvoiceSeries() {
 
 // Cash Registers
 export function useCashRegisters() {
-  return useQuery({ queryKey: ["cash-registers"], queryFn: getCashRegisters });
+  return useQuery({ queryKey: ["cash-registers"], queryFn: getCashRegisters, staleTime: CONFIG_STALE_MS });
 }
 
 export function useCreateCashRegister() {
@@ -94,12 +96,12 @@ export function useDeleteCashRegister() {
 
 // Employees for Fact assignment selector
 export function useEmployeesForFactAssignment() {
-  return useQuery({ queryKey: ["employees-for-fact"], queryFn: getEmployeesForFactAssignment });
+  return useQuery({ queryKey: ["employees-for-fact"], queryFn: getEmployeesForFactAssignment, staleTime: CONFIG_STALE_MS });
 }
 
 // Fact Users
 export function useFactUsers() {
-  return useQuery({ queryKey: ["fact-users"], queryFn: getFactUsers });
+  return useQuery({ queryKey: ["fact-users"], queryFn: getFactUsers, staleTime: CONFIG_STALE_MS });
 }
 
 export function useCreateFactUser() {

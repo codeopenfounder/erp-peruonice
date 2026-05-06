@@ -17,11 +17,14 @@ import {
 import { useDashboardFilters } from "@/components/dashboard/dashboard-filters-provider";
 import type { DashboardFilters } from "@/types/kpi";
 
+const KPI_STALE_MS = 2 * 60 * 1000;
+
 export function useSalesKPIs(filters: DashboardFilters) {
   return useQuery({
     queryKey: ["kpi-sales", filters],
     queryFn: () => getKpiSalesSummary(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -30,6 +33,7 @@ export function useHourlySales(filters: DashboardFilters) {
     queryKey: ["kpi-hourly", filters],
     queryFn: () => getKpiHourlySales(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -38,6 +42,7 @@ export function useProductRanking(filters: DashboardFilters) {
     queryKey: ["kpi-products", filters],
     queryFn: () => getKpiProductRanking(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -46,6 +51,7 @@ export function useOperationalLeaks(filters: DashboardFilters) {
     queryKey: ["kpi-operational", filters],
     queryFn: () => getKpiOperationalLeaks(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -54,6 +60,7 @@ export function useInventoryHealth(filters: DashboardFilters) {
     queryKey: ["kpi-inventory", filters],
     queryFn: () => getKpiInventoryHealth(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -62,6 +69,7 @@ export function useDailyTrend(filters: DashboardFilters) {
     queryKey: ["kpi-trend", filters],
     queryFn: () => getKpiDailyTrend(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -70,6 +78,7 @@ export function useAttendance(filters: DashboardFilters) {
     queryKey: ["kpi-attendance", filters],
     queryFn: () => getKpiAttendance(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -78,6 +87,7 @@ export function useHourlyAttendance(filters: DashboardFilters) {
     queryKey: ["kpi-hourly-attendance", filters],
     queryFn: () => getKpiHourlyAttendance(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -87,6 +97,7 @@ export function useExpensesSummary() {
     queryKey: ["kpi-expenses-summary", filters],
     queryFn: () => getKpiExpensesSummary(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -96,6 +107,7 @@ export function useExpensesTrend() {
     queryKey: ["kpi-expenses-trend", filters],
     queryFn: () => getKpiExpensesTrend(filters),
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
 
@@ -106,6 +118,6 @@ export function useHourlyProductSales(productId: string | null) {
     queryFn: () => getKpiHourlyProductSales(filters, productId),
     enabled: !!productId,
     placeholderData: keepPreviousData,
+    staleTime: KPI_STALE_MS,
   });
 }
-

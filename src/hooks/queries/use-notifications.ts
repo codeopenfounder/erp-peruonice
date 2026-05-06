@@ -20,6 +20,7 @@ export function useNotifications(filter?: string) {
       getNotifications({ cursor: pageParam, filter }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (lastPage) => lastPage.data?.nextCursor ?? undefined,
+    staleTime: 30 * 1000,
   });
 }
 

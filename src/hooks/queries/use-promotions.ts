@@ -11,6 +11,8 @@ import {
 } from "@/actions/promotions";
 import type { PromotionFilters } from "@/types/promotion";
 
+const CATALOG_STALE_MS = 5 * 60 * 1000;
+
 // ---------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------
@@ -20,6 +22,7 @@ export function usePromotions(filters: PromotionFilters) {
     queryKey: ["promotions", filters],
     queryFn: () => getPromotions(filters),
     placeholderData: keepPreviousData,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -28,6 +31,7 @@ export function usePromotion(id: string) {
     queryKey: ["promotion", id],
     queryFn: () => getPromotionById(id),
     enabled: !!id,
+    staleTime: CATALOG_STALE_MS,
   });
 }
 
@@ -35,6 +39,7 @@ export function usePromotionKPIs() {
   return useQuery({
     queryKey: ["promotion-kpis"],
     queryFn: () => getPromotionKPIs(),
+    staleTime: CATALOG_STALE_MS,
   });
 }
 

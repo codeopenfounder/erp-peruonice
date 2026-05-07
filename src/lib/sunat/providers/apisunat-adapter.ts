@@ -82,6 +82,30 @@ export class ApiSunatAdapter implements SunatProvider {
       payload.fecha_de_vencimiento = dueDate.toISOString().split("T")[0];
     }
 
+    // SPOT (detraccion): solo aplica a facturas
+    if (invoice.has_detraction && invoice.document_type === "factura") {
+      payload.tipo_operacion = "1001";
+      payload.detraccion = {
+        detraccion_tipo: invoice.detraction_code || "",
+        detraccion_porcentaje: String(invoice.detraction_percentage ?? ""),
+        detraccion_total: (invoice.detraction_amount ?? 0).toFixed(2),
+        medio_de_pago: invoice.detraction_payment_method || "001",
+        numero_cuenta_banco_nacion: invoice.detraction_account || "",
+      };
+      const importeNeto = (
+        invoice.total - (invoice.detraction_amount ?? 0)
+      ).toFixed(2);
+      const dueDate = new Date(emissionDate);
+      dueDate.setDate(dueDate.getDate() + 30);
+      payload.cuotas = [
+        {
+          importe: importeNeto,
+          fecha_de_pago: dueDate.toISOString().split("T")[0],
+        },
+      ];
+      delete payload.fecha_de_vencimiento;
+    }
+
     if (isNC && invoice.reference_series && invoice.reference_correlative) {
       const refDocType = invoice.reference_document_type || "boleta";
       payload.nota_credito_codigo_tipo = invoice.reference_reason || "01";

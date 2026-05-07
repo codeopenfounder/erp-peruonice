@@ -460,9 +460,12 @@ export class BilmeAdapter implements SunatProvider {
         ? addDaysISO(emissionDate, 30)
         : fecha;
 
-    return {
+    const hasDetraction =
+      !!invoice.has_detraction && invoice.document_type === "factura";
+
+    const payload: Record<string, unknown> = {
       tipoOperacion: "010",
-      codigoTipoOperacion: "0101",
+      codigoTipoOperacion: hasDetraction ? "1001" : "0101",
       serie: invoice.series_code,
       correlativo: String(invoice.correlative_number),
       fechaEmision: fecha,
@@ -470,14 +473,28 @@ export class BilmeAdapter implements SunatProvider {
       fechaVencimiento,
       codigoTipoDocumento,
       moneda: "PEN",
+      montoCredito: 0,
       formaPago: "Contado",
       igv: Number((invoice.igv_total || 0).toFixed(2)),
       icbper: 0,
+      cuotas: [],
       emisor: this.buildEmisor(config),
       cliente: this.buildCliente(invoice),
       totales: this.buildTotales(invoice),
       productos: this.buildProductos(invoice.items),
     };
+
+    if (hasDetraction) {
+      payload.detraccion = {
+        codigoMedioPago: invoice.detraction_payment_method || "001",
+        cuentaBancaria: invoice.detraction_account || "",
+        codigoBienServicio: invoice.detraction_code || "",
+        porcentaje: invoice.detraction_percentage ?? 0,
+        monto: Number((invoice.detraction_amount ?? 0).toFixed(2)),
+      };
+    }
+
+    return payload;
   }
 
   private buildNotaCreditoPayload(

@@ -22,7 +22,7 @@ export async function POST(request: Request) {
     // Verify invoice belongs to tenant
     const { data: invoice, error: invError } = await adminClient
       .from("invoices")
-      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, opening_id")
+      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, opening_id, has_detraction, detraction_code, detraction_percentage, detraction_amount, detraction_payment_method")
       .eq("id", invoiceId)
       .eq("tenant_id", ctx.tenantId)
       .single();
@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     // Get fact config
     const { data: factConfigRaw } = await adminClient
       .from("fact_config")
-      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
+      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
       .eq("tenant_id", ctx.tenantId)
       .eq("is_active", true)
       .single();
@@ -408,6 +408,12 @@ export async function POST(request: Request) {
         reference_document_type: refDocType,
         reference_reason: invoice.reference_reason || undefined,
         created_at: invoice.created_at,
+        has_detraction: invoice.has_detraction || false,
+        detraction_code: invoice.detraction_code || null,
+        detraction_percentage: invoice.detraction_percentage ?? null,
+        detraction_amount: invoice.detraction_amount ?? null,
+        detraction_payment_method: invoice.detraction_payment_method || null,
+        detraction_account: factConfigRaw.detraction_account || null,
       };
 
       const result = await provider.submit(factConfig, invoice.id, invoiceForSunat);

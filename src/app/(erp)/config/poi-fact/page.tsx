@@ -94,6 +94,7 @@ function FactConfigForm() {
     provider: "apisunat",
     api_token: "",
     is_production: false,
+    detraction_account: "",
   });
 
   React.useEffect(() => {
@@ -109,6 +110,7 @@ function FactConfigForm() {
         provider: config.provider || "apisunat",
         api_token: config.api_token || "",
         is_production: config.is_production || false,
+        detraction_account: (config as { detraction_account?: string }).detraction_account || "",
       });
     }
   }, [config]);
@@ -258,6 +260,29 @@ function FactConfigForm() {
                 : "Documentos se enviaran en modo de pruebas (beta)"}
             </p>
           </div>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Detraccion (SPOT) */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+          Detracción (SPOT)
+        </p>
+        <div className="space-y-2">
+          <Label>Cuenta del Banco de la Nación</Label>
+          <Input
+            value={formData.detraction_account}
+            onChange={(e) =>
+              setFormData((f) => ({ ...f, detraction_account: e.target.value }))
+            }
+            placeholder="00001234567 o 0004-3342343243"
+            maxLength={30}
+          />
+          <p className="text-xs text-muted-foreground">
+            Cuenta del emisor donde el cliente depositará la detracción de las facturas sujetas al SPOT. Solo números y guiones.
+          </p>
         </div>
       </div>
 
@@ -1141,12 +1166,12 @@ export default function PoiFactPage() {
             </div>
             <Separator />
             <a
-              href="/downloads/POI-Fact-Setup-v1.0.1.exe"
+              href="/downloads/POI-Fact-Setup-v1.0.2.exe"
               download="POI-Fact-Setup.exe"
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="size-4" />
-              Descargar Instalador v1.0.1 (4.8 MB)
+              Descargar Instalador v1.0.2
             </a>
           </div>
           <DialogFooter>

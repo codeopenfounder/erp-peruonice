@@ -83,10 +83,20 @@ export async function POST(request: Request) {
       }
     }
 
+    // Tenant-wide config to send back to the POS (cached in stored_config locally)
+    const adminClient = createAdminClient();
+    const { data: factConfig } = await adminClient
+      .from("fact_config")
+      .select("detraction_account")
+      .eq("tenant_id", ctx.tenantId)
+      .eq("is_active", true)
+      .single();
+
     return NextResponse.json({
       success: true,
       user_id: ctx.userId,
       server_time: new Date().toISOString(),
+      detraction_account: factConfig?.detraction_account || null,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Error interno";

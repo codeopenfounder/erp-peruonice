@@ -169,6 +169,7 @@ export interface FactConfig {
   logo_url: string | null;
   is_production: boolean;
   is_active: boolean;
+  detraction_account: string | null;
   created_at: string;
   updated_at: string;
 }

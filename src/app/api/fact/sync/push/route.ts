@@ -64,6 +64,11 @@ interface PushInvoice {
   authorized_by: string | null;
   authorized_by_name: string | null;
   authorized_at: string | null;
+  has_detraction?: boolean;
+  detraction_code?: string | null;
+  detraction_percentage?: number | null;
+  detraction_amount?: number | null;
+  detraction_payment_method?: string | null;
   items: PushInvoiceItem[];
   created_at: string;
 }
@@ -246,6 +251,11 @@ export async function POST(request: Request) {
             authorized_by: inv.authorized_by || null,
             authorized_by_name: inv.authorized_by_name || null,
             authorized_at: inv.authorized_at || null,
+            has_detraction: inv.has_detraction || false,
+            detraction_code: inv.detraction_code || null,
+            detraction_percentage: inv.detraction_percentage ?? null,
+            detraction_amount: inv.detraction_amount ?? null,
+            detraction_payment_method: inv.detraction_payment_method || null,
             issue_date: (() => {
               const d = /[TZ+]/.test(inv.created_at)
                 ? new Date(inv.created_at)
@@ -603,7 +613,7 @@ export async function POST(request: Request) {
             // Get fact config for SUNAT submission
             const { data: factConfigRaw } = await adminClient
               .from("fact_config")
-              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
+              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
               .eq("tenant_id", ctx.tenantId)
               .eq("is_active", true)
               .single();
@@ -705,6 +715,12 @@ export async function POST(request: Request) {
                 reference_document_type: refDocType,
                 reference_reason: inv.reference_reason || undefined,
                 created_at: inv.created_at,
+                has_detraction: inv.has_detraction || false,
+                detraction_code: inv.detraction_code || null,
+                detraction_percentage: inv.detraction_percentage ?? null,
+                detraction_amount: inv.detraction_amount ?? null,
+                detraction_payment_method: inv.detraction_payment_method || null,
+                detraction_account: factConfigRaw.detraction_account || null,
               };
 
               // Update invoice with resolved address for future retry

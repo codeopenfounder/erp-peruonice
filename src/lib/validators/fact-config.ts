@@ -12,6 +12,11 @@ export const factConfigSchema = z.object({
   api_token: z.string().optional().or(z.literal("")),
   logo_url: z.string().optional().or(z.literal("")),
   is_production: z.boolean(),
+  detraction_account: z
+    .string()
+    .regex(/^[\d-]{0,30}$/, "Solo números y guiones")
+    .optional()
+    .or(z.literal("")),
 });
 
 export type FactConfigSchemaType = z.infer<typeof factConfigSchema>;

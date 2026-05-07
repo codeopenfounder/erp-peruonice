@@ -50,6 +50,12 @@ export interface SunatInvoiceInput {
   reference_document_type?: string;
   reference_reason?: string;
   created_at: string;
+  has_detraction?: boolean;
+  detraction_code?: string | null;
+  detraction_percentage?: number | null;
+  detraction_amount?: number | null;
+  detraction_payment_method?: string | null;
+  detraction_account?: string | null;
 }
 
 export type SunatStatus = "ACEPTADO" | "RECHAZADO" | "PENDIENTE";

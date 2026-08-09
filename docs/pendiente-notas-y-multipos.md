@@ -4,6 +4,24 @@ Investigado y verificado. Ordenado por gravedad. Actualizado el **2026-08-09** t
 cerrar el ciclo asíncrono de anulación (punto 2), la autorización offline del POS
 (6.2), la línea de insumo del comprobante (6.1) y el punto 7 completo.
 
+## Estado del despliegue, a 2026-08-09
+
+| | Estado |
+|---|---|
+| Migración `00041` | ✅ aplicada y verificada en producción |
+| `poi-erp` | ✅ **desplegado** — PR #2 (`578a154`), Vercel verificado contra `erp.peruonice.com` |
+| `poi-fact` 1.0.3 | ✅ instalador publicado y descargable; rama `feat/void-cycle-and-offline-auth` empujada · ⏳ `main` del repo sin mergear |
+| `poi-lector` | ⏳ 2 ficheros sin commitear, ajenos a este trabajo |
+
+Ya no queda nada de esta tanda por desplegar. Lo que sigue son cosas **no
+implementadas** o **acciones humanas**, no trabajo a medio terminar.
+
+**Las tres que no pueden esperar mucho:**
+
+1. **Rotar dos contraseñas** (punto 4) — estuvieron en un repositorio público.
+2. **Alta en producción del proveedor SUNAT** (punto 0) — hoy cada emisión se rechaza.
+3. **Stock por sede** (punto 2) — la migración sólo es trivial mientras haya una sede.
+
 > **Ya resuelto en `notas-de-credito-y-debito.md`**: la re-emisión que cobraba dos
 > veces, la matriz única de efectos por motivo, el motivo 08, la prohibición de
 > descuentos y bonificaciones sobre boleta, el subtipo "cantidad" de la ND 02 que
@@ -42,14 +60,28 @@ rechazaría.
 Nada del resto de esta lista importa hasta resolver esas dos cosas. Ambas son
 gestión, no desarrollo.
 
-Estado fiscal de la base, sondeado el 2026-08-09:
+**Y ya hay una víctima concreta.** El 2026-08-09 a las 15:36 UTC el POS empujó una
+boleta real de S/ 1.00 (`B001-00000307`). SUNAT la rechazó con ese mismo mensaje y los
+reintentos la dejaron en `sunat_attempts = 6`. Está en `rejected`, y `autoRetrySunat`
+sólo mira `issued`, así que el bucle automático no la volverá a tocar nunca. Desde el
+despliegue de hoy **al menos es visible**: sale marcada «Atascado» en la página de
+comprobantes, con su botón de reintento. Pero el reintento volverá a fallar hasta que
+la empresa esté dada de alta.
 
-- 0 comprobantes en `issued`, 0 en `sent_to_sunat`, 0 con `sunat_attempts >= 5`. El
-  bucle de auto-retry no tiene nada pendiente y el dead-letter está vacío.
-- 1 sede, 2 cajas activas.
-- 278 comprobantes, de los que sólo 21 los emitió el POS; los otros 253 son
-  registros históricos cargados a mano (todos con `created_at` en segundo `:00`, sin
-  `xml_url`, sin `sunat_document_id`, sin `hash_code`).
+Estado fiscal de la base, sondeado el 2026-08-09 **después** del despliegue:
+
+| Dato | Valor |
+|---|---|
+| Comprobantes | 279 |
+| En `issued` / `sent_to_sunat` / `pending_void` | 0 / 0 / 0 |
+| Con `sunat_attempts >= 5` (dead-letter) | **1** — `B001-00000307` |
+| Resúmenes SUNAT (`sunat_summaries`) | 0, ninguno pendiente |
+| Sedes / cajas activas | 1 / 2 |
+| `fact_config` | `apisunat`, `is_production = true`, `emit_free_lines = false`, `detraction_account = NULL` |
+
+De los 279 comprobantes, sólo ~21 los emitió el POS; el resto son registros
+históricos cargados a mano (todos con `created_at` en segundo `:00`, sin `xml_url`,
+sin `sunat_document_id`, sin `hash_code`).
 
 ---
 
@@ -92,6 +124,28 @@ UPDATE public.fact_config SET emit_free_lines = true WHERE tenant_id = '…';
 Mientras esté apagado, el comportamiento es el histórico: la cortesía sale en el
 ticket impreso y no en el comprobante electrónico. **Eso ya era así**, no es una
 regresión de esta sesión — pero ahora está sabido y tiene arreglo listo.
+
+### Cuánto importa, con números
+
+Sondeado el 2026-08-09: hay **17 líneas de cortesía** en la base, S/ 685 de valor
+regalado. Repartidas así:
+
+| | Líneas | Cuándo |
+|---|---|---|
+| Emisiones **reales** que fueron a SUNAT | **1** | 2026-03-27 |
+| Registros históricos cargados a mano (nunca fueron a SUNAT) | 16 | marzo 2026 |
+
+O sea: la exposición retroactiva es **un solo documento**, y encima contra el sandbox
+de apisunat, no contra producción. Prácticamente nula.
+
+Lo que importa es hacia delante: **la cortesía es una práctica operativa real** —17
+usos en el histórico—, así que cada una que se dé a partir de ahora tendrá el ticket
+impreso y el XML discrepando, hasta que la sonda pase y se encienda el interruptor.
+No es urgente mientras la empresa siga sin poder emitir en producción; sí lo es el día
+que se resuelva el punto 0.
+
+De adicionales (`invoice_items` con `supply_id`) sigue habiendo **0**: la vía se
+conectó hoy y nadie la ha usado todavía.
 
 ---
 
@@ -249,7 +303,7 @@ escrito a mano.
 
 ---
 
-## 8. Restos menores, ya sin sangre
+## 8. Verificación pendiente y restos menores
 
 - **El primer ticket impreso tras cobrar no lleva hash.** El hash sólo existe
   después de que el proveedor firme, y el POS es offline-first. La reimpresión sí lo
@@ -275,9 +329,26 @@ escrito a mano.
   boleta** con el ítem en estado 3, y eso hoy se resuelve con una NC motivo 01, que
   es válida y síncrona. Es también lo único que falta para reactivar la anulación
   directa desde el POS.
-- **`poi-lector` tiene dos ficheros modificados sin commitear**, uno de ellos
-  `tsconfig.tsbuildinfo`, que es un artefacto de build y no debería estar
-  versionado. Añadirlo a `.gitignore` y sacarlo del índice.
+- **El POS no se probó a mano.** `void_invoice_local`, los cuatro diálogos con
+  autorización offline y la pestaña «Adicionales» están cubiertos por los 27 tests de
+  `cargo test` y por el typecheck, pero **Playwright no conduce una app de escritorio
+  Tauri**, así que el camino real nunca se ejecutó. Falta: cortar la red, entrar como
+  gerente, dar una cortesía y una salida operativa, y anular un comprobante con un
+  producto compuesto comprobando en la SQLite que volvieron los insumos de la receta y
+  que hay un `cash_register_movements` tipo `refund` con `synced = 1`.
+- **`kronos-fact`: la rama está empujada pero `main` no.** El código está a salvo en
+  GitHub (`feat/void-cycle-and-offline-auth`); sólo falta mover el puntero, por PR.
+  El motivo por el que `git push origin main` falla desde la terminal está en el
+  punto 5: el PAT vive embebido en el remoto de un solo repo.
+- **`poi-lector` tiene dos ficheros modificados sin commitear**, ajenos a este
+  trabajo:
+  - `vite.config.ts` — los iconos del PWA pasaron de `/icon-192.png` y `/icon-512.png`
+    a `/poi-logo.png`. Es un cambio deliberado y sin commitear. Ojo: declara **el mismo
+    fichero** para 192×192, 512×512 y `maskable`; un icono maskable necesita zona de
+    seguridad propia, así que conviene revisar cómo queda en el instalador de Android.
+  - `tsconfig.tsbuildinfo` — artefacto de build que **no debería estar versionado**
+    (`git ls-files` confirma que sí lo está). Añadirlo a `.gitignore` y sacarlo del
+    índice con `git rm --cached`.
 - **`syncPendingEntries` / `syncPendingExits` de poi-lector rompen en el primer
   ítem fallido**, así que una entrada mala bloquea todo lo que va detrás hasta el
   ciclo siguiente (30 s). No se tocó en esta sesión.

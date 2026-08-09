@@ -488,35 +488,42 @@ poi-erp $ npm run lint
      el lint del proyecto ya estaba en rojo y queda algo mejor)
 ```
 
-### La migración 00041 NO está aplicada
+### Migración 00041 y despliegue — HECHOS el 2026-08-09
 
-Está escrita y no ejecutada. El MCP de Supabase corre `--read-only` a propósito
-—`ctlvfkiwpmyljeofgitz` es producción y no hay proyecto de desarrollo—, y aplicarla
-es una escritura en producción.
-
-**El orden importa y no es el habitual de esta casa.** Las migraciones anteriores
+**El orden importaba y no era el habitual de esta casa.** Las migraciones anteriores
 eran puramente aditivas y el código viejo las ignoraba, así que daba igual el orden.
-Ésta **no**: el código nuevo hace `select(... emit_free_lines)` sobre
-`fact_config`, y contra una base sin esa columna PostgREST responde `42703` y
-rechaza la consulta entera. Es decir:
+Ésta **no**: el código nuevo hace `select(... emit_free_lines)` sobre `fact_config`, y
+contra una base sin esa columna PostgREST responde `42703` y rechaza la consulta
+entera. Se aplicó primero y se desplegó después, que es el orden correcto.
 
-> **Aplicar 00041 ANTES de empujar `main`.** Al revés, la emisión se cae.
+Estado verificado tras aplicarla:
 
-Tras aplicarla, comprobar:
-
-```sql
-select
-  (select count(*) from information_schema.tables
-    where table_schema='public' and table_name='sunat_summary_items')            as items,
-  (select count(*) from information_schema.columns
-    where table_name='sunat_summaries' and column_name='poll_attempts')          as polls,
-  (select count(*) from pg_proc where proname='fn_increment_summary_polls')      as rpc,
-  (select count(*) from information_schema.columns
-    where table_name='fact_config' and column_name='emit_free_lines')            as flag,
-  (select confdeltype from pg_constraint
-    where conname='inventory_movements_branch_id_fkey')                          as on_delete;
--- esperado: 1, 1, 1, 1, 'r'   ('r' = RESTRICT; antes era 'n' = SET NULL)
 ```
+sunat_summary_items            → existe (3 columnas, PK compuesta, índice por invoice_id, 1 policy)
+sunat_summaries.poll_attempts  → existe, NOT NULL DEFAULT 0
+fn_increment_summary_polls     → existe
+fact_config.emit_free_lines    → existe, false
+inventory_movements_branch_id_fkey → confdeltype 'r' (RESTRICT; antes 'n' = SET NULL)
+```
+
+**Desplegado a producción** vía PR #2 (`578a154`), mergeado a las 16:39 UTC. El PR #1
+había llevado antes `ffc9519`, el commit de multi-POS de la sesión anterior que
+seguía sin desplegar.
+
+Comprobado contra `erp.peruonice.com`, no asumido:
+
+| Señal | Resultado |
+|---|---|
+| `POI-Fact-Setup-v1.0.3.exe` | HTTP 200, 4 184 872 bytes, `application/x-msdos-program` |
+| `POST /api/fact/{sunat,sync/pull,sync/push}` | **401**, no 500 → los módulos nuevos cargan |
+| Páginas del ERP sin sesión | 307 a login, ninguna 500 |
+| `/login` | 200 en 0,65 s |
+| `B001-00000307` en la UI real | «Rechazado \| Atascado», con banner y filtro |
+
+El instalador es la señal fuerte: ese fichero no existía en `main` antes del merge, así
+que un 200 con esos bytes exactos prueba de una vez que Vercel construyó el commit
+nuevo, que el binario viajó, y que el matcher de `middleware.ts` sigue excluyendo
+`.exe` en vez de servir el HTML de login — que es el fallo que ya ocurrió una vez.
 
 ---
 

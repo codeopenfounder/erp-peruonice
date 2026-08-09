@@ -1,25 +1,25 @@
 # Pendiente
 
-Investigado y verificado. Ordenado por gravedad. Actualizado el **2026-08-09** tras
-cerrar el ciclo asíncrono de anulación (punto 2), la autorización offline del POS
-(6.2), la línea de insumo del comprobante (6.1) y el punto 7 completo.
+Investigado y verificado. Ordenado por gravedad. Actualizado el **2026-08-09**,
+segunda tanda, tras el corte del proveedor de facturación a **Billme producción**.
 
 ## Estado del despliegue, a 2026-08-09
 
 | | Estado |
 |---|---|
 | Migración `00041` | ✅ aplicada y verificada en producción |
-| `poi-erp` | ✅ **desplegado** — PR #2 (`578a154`), Vercel verificado contra `erp.peruonice.com` |
-| `poi-fact` 1.0.3 | ✅ instalador publicado y descargable; rama `feat/void-cycle-and-offline-auth` empujada · ⏳ `main` del repo sin mergear |
-| `poi-lector` | ⏳ 2 ficheros sin commitear, ajenos a este trabajo |
+| Proveedor SUNAT | ✅ `fact_config.provider = bilme`, token de producción verificado |
+| `poi-erp` | ✅ desplegado (PR #2) · ⏳ la tanda del corte a Billme sin desplegar |
+| `poi-fact` **1.0.4** | ✅ compilado, publicado y enlazado en `config/poi-fact` · ⏳ `main` del repo sin empujar |
+| `poi-lector` | ✅ iconos del PWA arreglados · ⏳ sin commitear |
 
-Ya no queda nada de esta tanda por desplegar. Lo que sigue son cosas **no
-implementadas** o **acciones humanas**, no trabajo a medio terminar.
+**Lo único que bloquea la emisión: la Clave SOL** (punto 0). Todo lo demás de la
+cadena está verificado — certificado, payload, firma, usuario y permisos.
 
 **Las tres que no pueden esperar mucho:**
 
-1. **Rotar dos contraseñas** (punto 4) — estuvieron en un repositorio público.
-2. **Alta en producción del proveedor SUNAT** (punto 0) — hoy cada emisión se rechaza.
+1. **Corregir la Clave SOL en el panel de Billme** (punto 0) — sin eso no se emite nada.
+2. **Rotar dos contraseñas** (punto 4) — estuvieron en un repositorio público.
 3. **Stock por sede** (punto 2) — la migración sólo es trivial mientras haya una sede.
 
 > **Ya resuelto en `notas-de-credito-y-debito.md`**: la re-emisión que cobraba dos
@@ -45,43 +45,56 @@ implementadas** o **acciones humanas**, no trabajo a medio terminar.
 
 ---
 
-## 0. Lo único que bloquea de verdad, y no es código
+## 0. Lo único que bloquea la emisión: la Clave SOL
 
-**La empresa no está autorizada en producción del proveedor.** `fact_config` tiene
-`provider = apisunat` e `is_production = true`, así que **hoy, si el POS emite, el
-comprobante se rechaza**. Las últimas seis emisiones reales (4–6 de mayo de 2026)
-están en `rejected` con el mismo mensaje: *"Esta empresa no tiene autorización para
-emitir documentos en el entorno de producción"*. Todo lo aceptado hasta hoy salió
-contra `sandbox.apisunat.pe`.
+**Nada se ha emitido nunca a la SUNAT real.** Todo lo que figura como `accepted`
+salió contra el sandbox de apisunat. El 2026-08-09 se cambió el proveedor a
+**Billme producción** y se recorrió entera la cadena de autenticación de SUNAT.
+Hoy queda **un solo escalón**:
 
-**`fact_config.detraction_account` está en NULL**: la primera factura con SPOT se
-rechazaría.
-
-Nada del resto de esta lista importa hasta resolver esas dos cosas. Ambas son
-gestión, no desarrollo.
-
-**Y ya hay una víctima concreta.** El 2026-08-09 a las 15:36 UTC el POS empujó una
-boleta real de S/ 1.00 (`B001-00000307`). SUNAT la rechazó con ese mismo mensaje y los
-reintentos la dejaron en `sunat_attempts = 6`. Está en `rejected`, y `autoRetrySunat`
-sólo mira `issued`, así que el bucle automático no la volverá a tocar nunca. Desde el
-despliegue de hoy **al menos es visible**: sale marcada «Atascado» en la página de
-comprobantes, con su botón de reintento. Pero el reintento volverá a fallar hasta que
-la empresa esté dada de alta.
-
-Estado fiscal de la base, sondeado el 2026-08-09 **después** del despliegue:
-
-| Dato | Valor |
+| Pieza | Estado |
 |---|---|
-| Comprobantes | 279 |
-| En `issued` / `sent_to_sunat` / `pending_void` | 0 / 0 / 0 |
-| Con `sunat_attempts >= 5` (dead-letter) | **1** — `B001-00000307` |
-| Resúmenes SUNAT (`sunat_summaries`) | 0, ninguno pendiente |
-| Sedes / cajas activas | 1 / 2 |
-| `fact_config` | `apisunat`, `is_production = true`, `emit_free_lines = false`, `detraction_account = NULL` |
+| Token de Billme | ✅ válido, ambiente **producción** verificado |
+| Certificado digital (CDT) | ✅ real y vigente — RENIEC, `PERU ON ICE S.A.C.`, `NTRPE-20613509446`, 2026-08-07 → 2029-08-06 |
+| Payload de boleta, factura, NC, ND y RA | ✅ coincide campo a campo con la doc oficial de Billme |
+| Firma del UBL | ✅ Billme devuelve el XML firmado con `DigestValue` válido |
+| Usuario SOL | ✅ existe y tiene los permisos de envío |
+| **Clave SOL** | ❌ **`0104 — La Clave ingresada es incorrecta`** |
 
-De los 279 comprobantes, sólo ~21 los emitió el POS; el resto son registros
-históricos cargados a mano (todos con `created_at` en segundo `:00`, sin `xml_url`,
-sin `sunat_document_id`, sin `hash_code`).
+La cadena recorrida, con la causa de cada código, está documentada en
+`facturacion-billme.md`: `0103` (usuario inexistente) → `0110` (sin perfil de
+envío) → `0104` (clave). El diagnóstico se hace **sin emitir nada** con
+`ConsultarCdr`, que autentica con las mismas credenciales; si responde `0127`, la
+autenticación pasó. En el ERP es el botón «Verificar» de Configuración › POI Fact.
+
+**Cuando la clave sea correcta no hay que hacer nada más**: `autoRetrySunat`
+reenvía solo los rechazos por causa sistémica, así que el primer pull del POS
+emite todo lo pendiente.
+
+**`fact_config.detraction_account` sigue en NULL**: la primera factura con SPOT se
+rechazaría. Es el otro dato de gestión que falta.
+
+### Comprobantes en problemas, medidos
+
+Nueve comprobantes en estado no terminal, por **S/ 9,766**. No son el mismo caso y
+la diferencia importa:
+
+| Grupo | Documentos | Importe | Situación |
+|---|---|---|---|
+| **Recuperables** | `B001-00000307`, `B002-00000001` | S/ 2 | En plazo hasta el 16-ago. Se emitirán solos al arreglar la clave |
+| **Fuera de plazo, nunca llegaron a SUNAT** | `F001-00001249` (S/ 7 450), `F001-00000359`, `F001-00000090`, `F001-00000087`, `B001-00000302`, `B001-00000303` | S/ 9 066 | 4–6 de mayo. Rechazados por apisunat con *"no tiene autorización… producción"* |
+| **Fuera de plazo, pero probablemente sí existe** | `B001-00000065` | S/ 700 | Su rechazo dice *"La boleta B001-65 fue emitido anteriormente"* — o sea que llegó a SUNAT en su día |
+
+Los siete de las dos últimas filas **ya no se reintentan** —ni desde el pull, ni
+desde el ERP, ni desde el POS— y salen marcados «Fuera de plazo»: SUNAT los
+rechazaría con el código 2600 y ya perdieron la calidad de comprobante de pago.
+**Qué hacer con ellos es una decisión contable, no técnica**, y la de S/ 7 450 fue
+a un cliente con RUC que no ha podido usar su crédito fiscal.
+
+`B002-00000001` la creó esta sesión, a propósito: `B001-00000307` estaba atrapado
+en el bloqueo `0140` de SUNAT —que es por documento— y hacía falta un correlativo
+virgen para saber si el envío funcionaba de verdad. Se emitirá como prueba del
+corte.
 
 ---
 
@@ -96,34 +109,57 @@ gratuita — `precioUnitario: 0`, el valor referencial en `precioLista` con
 `codigoTipoPrecio: "02"` (catálogo 16), tributo 9996 (GRA) y código de gratuidad del
 catálogo 07 según la afectación del bien (15 gravado / 21 exonerado / 37 inafecto).
 
-**Por qué está apagado.** Hoy una boleta con cortesía se **acepta** precisamente
-porque la línea desaparece del payload y los totales cuadran. Al declararla como
-gratuita, SUNAT exige además el total de venta gratuita del comprobante, y la
-documentación de Billme lista nueve campos en `totales` y **ninguno** de venta
-gratuita. Encenderlo a ciegas podría convertir una boleta que hoy se acepta en un
-rechazo completo. No es una cautela teórica: el modo de fallo es la vía de venta
-principal.
+**Por qué está apagado, ahora contra la fuente primaria.** Se leyó entera la
+documentación oficial de Billme (`quinodevelop.gitbook.io/billme`) el 2026-08-09, y
+confirma lo que se temía:
 
-**Sonda, con el token de DESARROLLO de Billme:**
+- el bloque `totales` tiene **exactamente nueve campos** y **ninguno de venta
+  gratuita**, ni en boleta/factura ni en las notas (que llevan cinco);
+- **no existe bloque de leyendas** en ningún tipo de documento.
 
-1. Emitir en beta una boleta con una línea normal y una cortesía.
-2. Volcar la respuesta cruda: `faultCode` vacío y `cdrBase64` presente.
-3. Descomprimir el `cdrBase64` y comprobar `ResponseCode 0`.
-4. Decodificar el `xmlDocument` y comprobar que la línea gratuita lleva
-   `cac:AlternativeConditionPrice` con `cbc:PriceTypeCode` `02` y el tributo 9996.
-5. Si SUNAT reclama el total de venta gratuita (código 2027 o similar), **no
-   forzarlo**: documentar el hueco de contrato y preguntar al proveedor qué campo
-   espera. La línea gratuita se queda fuera hasta tenerlo.
+SUNAT exige las dos cosas para una operación gratuita: la leyenda **1002**
+(*"TRANSFERENCIA GRATUITA DE UN BIEN Y/O SERVICIO PRESTADO GRATUITAMENTE"*,
+catálogo 52) y el *Total valor de venta – Operaciones gratuitas* mayor que cero.
+Sin ellos rechaza con **2416** (*"Si existe leyenda Transferencia Gratuita debe
+consignar Total Valor de Venta de Operaciones Gratuitas"*) y **2641** (*"Operación
+gratuita, debe consignar Total valor venta - operaciones gratuitas mayor a cero"*).
 
-Sólo entonces:
+Cabe que Billme los derive del array `productos` al construir el UBL — no lo
+documenta, y es exactamente lo que hay que averiguar. Hoy una boleta con cortesía
+se **acepta** precisamente porque la línea desaparece del payload y los totales
+cuadran, así que encenderlo a ciegas puede convertir una boleta que hoy pasa en un
+rechazo completo. El modo de fallo es la vía de venta principal.
 
-```sql
-UPDATE public.fact_config SET emit_free_lines = true WHERE tenant_id = '…';
-```
+**Trampa adicional detectada en el catálogo de Billme**: su lista de afectación del
+IGV salta del 36 al 40, **sin el 37** (*Inafecto – Transferencia gratuita*), que
+SUNAT sí tiene. `mapCodigoAfectacionGratuita` emite 37 para una cortesía inafecta.
+Hoy no salta porque el POS manda todas las cortesías como `gravado` → 15, que sí
+está en su lista.
+
+**La sonda está escrita y lista**: 13 casos (boleta, factura, NC de cuatro motivos,
+ND, detracción, cortesías, RA y consulta de ticket) que importan el adapter real e
+interceptan `fetch` para volcar petición, respuesta, CDR descomprimido y XML
+decodificado. Sólo falta **un token de DESARROLLO de Billme**; el que había en
+`env.txt` está muerto («El token no es válido»). Se crea registrando una empresa de
+tipo "Desarrollo" en su panel, donde los datos pueden ser ficticios y ellos mismos
+recomiendan `MODDATOS` como usuario y clave SOL.
+
+Criterio de aceptación de la sonda, en el XML que devuelva Billme:
+
+1. `faultCode` vacío y `cdrBase64` presente;
+2. el CDR descomprimido con `ResponseCode 0`;
+3. `<cbc:Note languageLocaleID="1002">` presente;
+4. un `cac:TaxSubtotal` con `TaxScheme/ID = 9996` y `TaxableAmount > 0`;
+5. la línea con `cac:AlternativeConditionPrice` y `cbc:PriceTypeCode` `02`.
+
+Si falta 3 o 4, **no forzarlo**: documentar el hueco y preguntar al proveedor.
+
+Sólo con eso pasado se enciende — y ya no hace falta SQL, hay interruptor en
+Configuración › POI Fact.
 
 Mientras esté apagado, el comportamiento es el histórico: la cortesía sale en el
 ticket impreso y no en el comprobante electrónico. **Eso ya era así**, no es una
-regresión de esta sesión — pero ahora está sabido y tiene arreglo listo.
+regresión — pero ahora está sabido y tiene arreglo listo.
 
 ### Cuánto importa, con números
 
@@ -289,17 +325,14 @@ hash. Es diseño, no una tarde de código.
 
 ---
 
-## 7. `types/database.ts` generado de verdad
+## 7. `types/database.ts` generado de verdad — ✅ RESUELTO (2026-08-09)
 
-Se podó el 2026-08-09 de 432 líneas y 36 tipos a los **tres** que el código importa
-(`Cargo`, `Profile`, `Tenant`), con una cabecera que dice qué es y qué no. Eso quita
-la trampa —declaraba `invoices.branch_id`, exactamente la columna del bug del
-webhook de Culqi— pero no resuelve el fondo: **no hay tipos generados**.
-
-Para tenerlos: `supabase gen types typescript --project-id ctlvfkiwpmyljeofgitz`,
-con un script `db:types` en `package.json` y el fichero resultante en una ruta
-distinta (`src/types/supabase.ts`) para no volver a confundir lo generado con lo
-escrito a mano.
+`src/types/supabase.ts` (3.945 líneas) generado con
+`npm run db:types` → `supabase gen types typescript --project-id ctlvfkiwpmyljeofgitz`.
+Va en una ruta distinta de `types/database.ts` a propósito: mezclarlos fue lo que
+permitió que el escrito a mano se quedara 37 migraciones por detrás sin que nadie lo
+notara. `types/database.ts` conserva sus tres tipos de identidad y ahora remite al
+generado en su cabecera.
 
 ---
 
@@ -323,12 +356,15 @@ escrito a mano.
   sólo puede ser gratuito y su valor referencial es `cost_price`, que es una
   aproximación. Cobrar un adicional exige una columna nueva y decidir su afectación
   de IGV — decisión de negocio, no técnica.
-- **El Resumen Diario (RC) no está construido.** No hace falta para emitir: Billme
-  hace `sendBill` de las boletas y devuelve CDR individual, verificado contra la API
-  real (ver `facturacion-billme.md`). Haría falta sólo para **dar de baja una
-  boleta** con el ítem en estado 3, y eso hoy se resuelve con una NC motivo 01, que
-  es válida y síncrona. Es también lo único que falta para reactivar la anulación
-  directa desde el POS.
+- **El Resumen Diario (RC) no está construido, y con este proveedor no se puede.**
+  No hace falta para emitir: Billme hace `sendBill` de las boletas y devuelve CDR
+  individual, verificado contra la API real (ver `facturacion-billme.md`). Serviría
+  para dar de baja una boleta con el ítem en estado 3 — pero **el contrato del RC de
+  Billme no tiene campo de estado de ítem**: su objeto `boletas` lleva
+  `codigoTipoDocumento`, `serieComprobante`, `moneda`, `montoTotal`, `montoPagar` e
+  `impuestos`, y nada más (documentación oficial, leída el 2026-08-09). Así que la NC
+  motivo 01 no es un atajo: es la única vía de anular una boleta aquí. Eso deja
+  también la anulación directa desde el POS fuera de alcance mientras siga Billme.
 - **El POS no se probó a mano.** `void_invoice_local`, los cuatro diálogos con
   autorización offline y la pestaña «Adicionales» están cubiertos por los 27 tests de
   `cargo test` y por el typecheck, pero **Playwright no conduce una app de escritorio
@@ -340,15 +376,14 @@ escrito a mano.
   GitHub (`feat/void-cycle-and-offline-auth`); sólo falta mover el puntero, por PR.
   El motivo por el que `git push origin main` falla desde la terminal está en el
   punto 5: el PAT vive embebido en el remoto de un solo repo.
-- **`poi-lector` tiene dos ficheros modificados sin commitear**, ajenos a este
-  trabajo:
-  - `vite.config.ts` — los iconos del PWA pasaron de `/icon-192.png` y `/icon-512.png`
-    a `/poi-logo.png`. Es un cambio deliberado y sin commitear. Ojo: declara **el mismo
-    fichero** para 192×192, 512×512 y `maskable`; un icono maskable necesita zona de
-    seguridad propia, así que conviene revisar cómo queda en el instalador de Android.
-  - `tsconfig.tsbuildinfo` — artefacto de build que **no debería estar versionado**
-    (`git ls-files` confirma que sí lo está). Añadirlo a `.gitignore` y sacarlo del
-    índice con `git rm --cached`.
+- **`poi-lector`: el PWA no era instalable.** ✅ arreglado el 2026-08-09. El
+  manifiesto declaraba `poi-logo.png` como 192×192, 512×512 y `maskable` a la vez, y
+  ese fichero mide **72×60 px**. Chrome exige un icono de 192 px real para ofrecer la
+  instalación, así que el prompt no aparecía. Se generan `icon-192.png`,
+  `icon-512.png` y `icon-maskable-512.png` desde el logo, con fondo blanco sólido y
+  el 20 % de margen del maskable. Queda blando al ampliar desde 72 px: **con un logo
+  de origen a 512 px o en SVG saldría nítido**, y regenerarlos es un comando.
+  `tsconfig.tsbuildinfo` sale del índice y entra en `.gitignore`.
 - **`syncPendingEntries` / `syncPendingExits` de poi-lector rompen en el primer
   ítem fallido**, así que una entrada mala bloquea todo lo que va detrás hasta el
   ciclo siguiente (30 s). No se tocó en esta sesión.

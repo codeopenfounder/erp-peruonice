@@ -101,6 +101,7 @@ function FactConfigForm() {
     api_token: "",
     is_production: false,
     detraction_account: "",
+    emit_free_lines: false,
   });
 
   const [tokenCheck, setTokenCheck] = React.useState<TokenVerification | null>(null);
@@ -120,6 +121,7 @@ function FactConfigForm() {
         api_token: config.api_token || "",
         is_production: config.is_production || false,
         detraction_account: (config as { detraction_account?: string }).detraction_account || "",
+        emit_free_lines: config.emit_free_lines === true,
       });
     }
   }, [config]);
@@ -308,21 +310,33 @@ function FactConfigForm() {
         </div>
 
         {tokenCheck && (
-          <div
-            className={`mt-4 flex items-start gap-2 rounded-lg border p-3 text-sm ${
-              !tokenCheck.valid
-                ? "border-destructive/40 bg-destructive/5 text-destructive"
-                : tokenCheck.environment === "production"
-                  ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
-                  : "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-500"
-            }`}
-          >
-            {tokenCheck.valid ? (
-              <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-            ) : (
-              <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+          <div className="mt-4 space-y-2">
+            <div
+              className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                !tokenCheck.valid
+                  ? "border-destructive/40 bg-destructive/5 text-destructive"
+                  : tokenCheck.environment === "production"
+                    ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                    : "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-500"
+              }`}
+            >
+              {tokenCheck.valid ? (
+                <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+              ) : (
+                <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+              )}
+              <span>{tokenCheck.message}</span>
+            </div>
+
+            {/* El token puede ser válido y aun así no poderse emitir nada: quien
+                rechaza entonces es SUNAT, y lo que rechaza son las credenciales
+                SOL del emisor guardadas en el proveedor. */}
+            {tokenCheck.solWarning && (
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+                <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+                <span>{tokenCheck.solWarning}</span>
+              </div>
             )}
-            <span>{tokenCheck.message}</span>
           </div>
         )}
 
@@ -367,6 +381,41 @@ function FactConfigForm() {
           <p className="text-xs text-muted-foreground">
             Cuenta del emisor donde el cliente depositará la detracción de las facturas sujetas al SPOT. Solo números y guiones.
           </p>
+        </div>
+      </div>
+
+      <Separator />
+
+      {/* Operaciones gratuitas (cortesías y adicionales) */}
+      <div>
+        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-3">
+          Operaciones gratuitas
+        </p>
+        <div className="flex items-start gap-3">
+          <Switch
+            checked={formData.emit_free_lines}
+            onCheckedChange={(checked) =>
+              setFormData((f) => ({ ...f, emit_free_lines: checked }))
+            }
+          />
+          <div className="space-y-1">
+            <Label>Declarar cortesías y adicionales en el comprobante</Label>
+            <p className="text-xs text-muted-foreground">
+              Apagado, una cortesía sale en el ticket impreso y <strong>no</strong> en
+              el comprobante electrónico: la línea vale 0 y se descarta del envío.
+              Encendido, se declara como operación gratuita (valor referencial,
+              tributo 9996 GRA y código de gratuidad del catálogo 07).
+            </p>
+            {formData.emit_free_lines && (
+              <p className="text-xs text-amber-600">
+                Enciéndelo sólo si ya comprobaste contra la API del proveedor que
+                acepta la línea gratuita. SUNAT exige además la leyenda 1002 y el
+                total de venta gratuita del comprobante (errores 2416 y 2641): si el
+                proveedor no los emite, una boleta que hoy se acepta pasaría a
+                rechazarse entera.
+              </p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1446,12 +1495,12 @@ export default function PoiFactPage() {
                 .exe publicado era anterior a los cambios de multi-POS, así que el
                 device_id y el arreglo del stock decimal no estaban en él. */}
             <a
-              href="/downloads/POI-Fact-Setup-v1.0.3.exe"
+              href="/downloads/POI-Fact-Setup-v1.0.4.exe"
               download="POI-Fact-Setup.exe"
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="size-4" />
-              Descargar Instalador v1.0.3
+              Descargar Instalador v1.0.4
             </a>
           </div>
           <DialogFooter>

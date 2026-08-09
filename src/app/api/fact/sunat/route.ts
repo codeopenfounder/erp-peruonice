@@ -8,6 +8,11 @@ import {
   insertInventoryMovement,
   resolveMovementBranchId,
 } from "@/lib/inventory-movement";
+import {
+  deadlineDaysFor,
+  isWithinSunatDeadline,
+  sunatDeadlineDate,
+} from "@/lib/sunat/policy";
 import { buildReferenceValueMap } from "@/lib/sunat/reference-values";
 import { isEmisorRucValid } from "@/lib/sunat/ruc";
 
@@ -181,8 +186,25 @@ export async function POST(request: Request) {
       );
       if (!summaryCorrError && typeof summaryCorrelative === "number") {
         summaryRef = { correlative: summaryCorrelative, referenceDate: peruToday };
-      } else if (summaryCorrError) {
-        console.error("[sunat-void] No se pudo obtener el correlativo del resumen:", summaryCorrError);
+      } else {
+        // Antes esto sólo se logueaba y se seguía adelante sin `summaryRef`, y el
+        // adapter caía en su propio fallback `correlative: 1`. Con eso, un fallo de
+        // la RPC en la segunda baja del día publicaba un `RA-AAAAMMDD-1` ya usado:
+        // SUNAT lo rechaza y el registro local queda apuntando a una identidad que
+        // pertenece a otro resumen. Sin correlativo no se manda nada.
+        console.error(
+          "[sunat-void] No se pudo obtener el correlativo del resumen:",
+          summaryCorrError,
+        );
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "No se pudo reservar el correlativo del resumen de bajas. " +
+              "No se envió nada a SUNAT; vuelve a intentarlo.",
+          },
+          { status: 500 },
+        );
       }
 
       const result = await provider.void(
@@ -493,6 +515,23 @@ export async function POST(request: Request) {
       if (invoice.status !== "rejected" && invoice.status !== "issued") {
         return NextResponse.json(
           { success: false, error: "Solo se pueden reenviar comprobantes rechazados o emitidos" },
+          { status: 400 },
+        );
+      }
+
+      // El POS también llega aquí, y sin este corte un comprobante caducado se
+      // reintenta desde la caja indefinidamente: cada intento es un rechazo 2600
+      // garantizado que además consume `sunat_attempts`.
+      if (!isWithinSunatDeadline(invoice.created_at, seriesCode)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              `Fuera del plazo legal de envío (${deadlineDaysFor(seriesCode)} días calendario ` +
+              `desde el día siguiente a la emisión; venció el ` +
+              `${sunatDeadlineDate(invoice.created_at, seriesCode)}). SUNAT lo rechazaría con el ` +
+              `código 2600. Consúltalo con administración.`,
+          },
           { status: 400 },
         );
       }

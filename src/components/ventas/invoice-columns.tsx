@@ -19,7 +19,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { InvoiceStatusBadge } from "@/components/ventas/invoice-status-badge";
-import { getTodayPeru } from "@/lib/date-utils";
+import {
+  MAX_SUNAT_ATTEMPTS,
+  SUNAT_AUTH_FAULTS,
+  SUNAT_AUTH_FAULT_REMEDY,
+  daysLeftToSend,
+  deadlineDaysFor,
+  extractSunatCode,
+  isProviderAuthFault,
+} from "@/lib/sunat/policy";
 import { toast } from "sonner";
 import type { InvoiceListItem } from "@/types/invoice";
 
@@ -50,30 +58,47 @@ function padCorrelative(n: number): string {
   return String(n).padStart(8, "0");
 }
 
-function getDaysRemaining(issueDate: string, docType: string, status: string): number | null {
-  if (status === "accepted" || status === "voided") return null;
-  const limit = docType === "factura" || docType === "nota_debito" ? 3 : 5;
-  const issue = new Date(issueDate + "T00:00:00");
-  const deadline = new Date(issue);
-  deadline.setDate(deadline.getDate() + limit);
-  const today = new Date(getTodayPeru() + "T00:00:00");
-  return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-}
-
 /**
- * Tope de reenvíos automáticos, espejado de `lib/sunat/persist`.
+ * Días de plazo que quedan. La regla vive en `lib/sunat/policy`, que es la misma
+ * que aplican el auto-retry y el botón de reenvío.
  *
- * Se duplica el número a propósito: importar el módulo de servidor desde un
- * componente cliente arrastraría el cliente admin de Supabase al bundle del
- * navegador. Si cambia allí, cambia aquí.
+ * Esta función tenía su propia tabla de plazos —3 días para factura y ND, 5 para
+ * todo lo demás— y se equivocaba en tres casos: la boleta son 7 días, no 5; una
+ * NC de factura hereda los 3 de la factura, no los 5 de "todo lo demás"; y una ND
+ * de boleta son 7, no 3. El plazo depende del documento afectado, y eso lo dice
+ * el primer carácter de la serie, no `document_type`.
  */
-const MAX_SUNAT_ATTEMPTS = 5;
+function getDaysRemaining(
+  issueDate: string,
+  seriesCode: string,
+  status: string,
+): number | null {
+  return daysLeftToSend(issueDate, seriesCode, status);
+}
 
 /** Estados desde los que tiene sentido reenviar a SUNAT. */
 const RETRYABLE_STATUSES = new Set(["issued", "rejected", "sent_to_sunat"]);
 
 /**
- * Un comprobante que agotó los reintentos automáticos.
+ * Comprobante que ya no puede enviarse: se le pasó el plazo legal.
+ *
+ * Es un estado distinto de «Atascado», y confundirlos cuesta caro. Un atascado se
+ * recupera reintentando; un caducado ya no, porque SUNAT lo rechaza con 2600 y el
+ * documento perdió la calidad de comprobante de pago aunque el cliente lo tenga en
+ * la mano. Lo que toca ahí es contable, no técnico.
+ */
+export function isSunatExpired(invoice: InvoiceListItem): boolean {
+  if (!RETRYABLE_STATUSES.has(invoice.status)) return false;
+  const days = daysLeftToSend(
+    invoice.issue_date || invoice.created_at,
+    invoice.series_code,
+    invoice.status,
+  );
+  return days !== null && days < 0;
+}
+
+/**
+ * Un comprobante que agotó los reintentos automáticos **y sigue en plazo**.
  *
  * Es el dead-letter: `autoRetrySunat` filtra por `sunat_attempts < 5`, así que al
  * quinto fallo deja de verlo y el comprobante se queda en `issued` **para
@@ -83,7 +108,8 @@ const RETRYABLE_STATUSES = new Set(["issued", "rejected", "sent_to_sunat"]);
 export function isSunatStuck(invoice: InvoiceListItem): boolean {
   return (
     RETRYABLE_STATUSES.has(invoice.status) &&
-    (invoice.sunat_attempts ?? 0) >= MAX_SUNAT_ATTEMPTS
+    (invoice.sunat_attempts ?? 0) >= MAX_SUNAT_ATTEMPTS &&
+    !isSunatExpired(invoice)
   );
 }
 
@@ -133,18 +159,37 @@ export function getInvoiceColumns(
       id: "days_remaining",
       header: "Plazo",
       cell: ({ row }) => {
+        const inv = row.original;
         const days = getDaysRemaining(
-          row.original.issue_date,
-          row.original.document_type,
-          row.original.status
+          inv.issue_date || inv.created_at,
+          inv.series_code,
+          inv.status
         );
         if (days === null) return <span className="text-xs text-muted-foreground">—</span>;
+        const limite = deadlineDaysFor(inv.series_code);
         if (days < 0)
-          return <span className="text-[10px] font-semibold text-destructive">Vencido</span>;
+          return (
+            <span
+              className="text-[10px] font-semibold text-destructive"
+              title={`El plazo de ${limite} días calendario para enviarlo a SUNAT venció hace ${-days} día(s).`}
+            >
+              Vencido
+            </span>
+          );
         if (days === 0)
-          return <span className="text-[10px] font-semibold text-destructive">Hoy</span>;
+          return (
+            <span
+              className="text-[10px] font-semibold text-destructive"
+              title="Hoy es el último día para enviarlo a SUNAT."
+            >
+              Hoy
+            </span>
+          );
         return (
-          <span className={`text-xs font-medium ${days <= 1 ? "text-amber-600" : "text-muted-foreground"}`}>
+          <span
+            className={`text-xs font-medium ${days <= 1 ? "text-amber-600" : "text-muted-foreground"}`}
+            title={`Plazo de ${limite} días calendario desde el día siguiente a la emisión.`}
+          >
             {days}d
           </span>
         );
@@ -158,6 +203,34 @@ export function getInvoiceColumns(
         return (
           <div className="flex items-center gap-1.5">
             <InvoiceStatusBadge status={inv.status} />
+            {isProviderAuthFault(inv.sunat_response_code) && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700"
+                title={[
+                  `SUNAT rechazó las credenciales del emisor, no el comprobante.`,
+                  `${extractSunatCode(inv.sunat_response_code)}: ${
+                    SUNAT_AUTH_FAULTS[extractSunatCode(inv.sunat_response_code) ?? ""] ??
+                    inv.sunat_response_desc
+                  }`,
+                  SUNAT_AUTH_FAULT_REMEDY[extractSunatCode(inv.sunat_response_code) ?? ""] ?? "",
+                  `Afecta a todos los comprobantes, no sólo a este, y se reenviará solo en cuanto se corrija.`,
+                ]
+                  .filter(Boolean)
+                  .join("\n\n")}
+              >
+                <TriangleAlert className="size-3" />
+                Credenciales del emisor
+              </span>
+            )}
+            {isSunatExpired(inv) && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-destructive/30 bg-destructive/15 px-2 py-0.5 text-[10px] font-medium text-destructive"
+                title={`Se pasó el plazo legal de ${deadlineDaysFor(inv.series_code)} días calendario para enviarlo a SUNAT. Reenviarlo sólo produce el rechazo 2600: el documento ya perdió la calidad de comprobante de pago. La salida es contable, no técnica.`}
+              >
+                <TriangleAlert className="size-3" />
+                Fuera de plazo
+              </span>
+            )}
             {isSunatStuck(inv) && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
@@ -228,17 +301,22 @@ export function getInvoiceColumns(
               <ExternalLink className="mr-2 size-3.5" />
               Ver transacción
             </DropdownMenuItem>
-            {onRetrySunat && RETRYABLE_STATUSES.has(row.original.status) && (
-              <DropdownMenuItem onClick={() => onRetrySunat(row.original.id)}>
-                <RotateCcw className="mr-2 size-3.5" />
-                Reintentar SUNAT
-                {(row.original.sunat_attempts ?? 0) > 0 && (
-                  <span className="ml-1 text-[10px] text-muted-foreground">
-                    ({row.original.sunat_attempts} intentos)
-                  </span>
-                )}
-              </DropdownMenuItem>
-            )}
+            {/* Fuera de plazo no se ofrece el reenvío: el servidor lo rechazaría
+                igualmente, y ofrecer un botón que no puede funcionar invita a
+                gastar la tarde en él. */}
+            {onRetrySunat &&
+              RETRYABLE_STATUSES.has(row.original.status) &&
+              !isSunatExpired(row.original) && (
+                <DropdownMenuItem onClick={() => onRetrySunat(row.original.id)}>
+                  <RotateCcw className="mr-2 size-3.5" />
+                  Reintentar SUNAT
+                  {(row.original.sunat_attempts ?? 0) > 0 && (
+                    <span className="ml-1 text-[10px] text-muted-foreground">
+                      ({row.original.sunat_attempts} intentos)
+                    </span>
+                  )}
+                </DropdownMenuItem>
+              )}
             {onCheckVoidTicket && row.original.sunat_ticket_status === "pending" && (
               <DropdownMenuItem onClick={onCheckVoidTicket}>
                 <Search className="mr-2 size-3.5" />

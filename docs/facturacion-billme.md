@@ -63,6 +63,90 @@ Producción activo emitiría contra homologación con apariencia de éxito total
 boletas sin validez fiscal y nadie enterándose. El sistema ya sufrió el fallo
 gemelo con apisunat (`is_production = true` apuntando a sandbox).
 
+### El token válido no basta: las credenciales SOL del emisor
+
+Un token perfectamente válido convive con la imposibilidad total de emitir. Son
+dos cosas distintas y fallan por separado:
+
+- el **token** identifica a la empresa ante Billme;
+- el **Usuario SOL / Clave SOL** que la empresa tiene guardados en el panel de
+  Billme son con los que Billme se autentica **ante SUNAT** en su nombre.
+
+Si los segundos están mal, Billme construye el comprobante, lo firma con el
+certificado correcto y SUNAT lo rechaza en la puerta. `ConsultarCdr` usa esas
+mismas credenciales, así que la sonda las detecta **sin emitir nada** — se puede
+repetir tantas veces como haga falta mientras se ajusta el panel.
+
+Por eso `TokenVerification` tiene `solWarning`, y por eso la página de
+comprobantes marca «Credenciales del emisor» cuando el código de rechazo está en
+`SUNAT_AUTH_FAULTS` (`lib/sunat/policy.ts`). Antes de eso, el botón «Verificar»
+decía *"Token válido, de una empresa de PRODUCCIÓN"* mientras SUNAT devolvía
+`0103` y ninguna boleta podía emitirse.
+
+**La cadena de autenticación de SUNAT se recorre por orden**, y cada código dice
+exactamente qué falta. Recorrida entera en producción el 2026-08-09 mientras se
+configuraba el emisor:
+
+| Código | Qué significa | Qué había que tocar |
+|---|---|---|
+| `0103` | El usuario SOL no existe | El usuario secundario no estaba creado en SUNAT |
+| `0110` | No se pudo obtener el tipo de usuario | Existe, pero sin perfil de facturación electrónica |
+| `0111` | No tiene el perfil para enviar comprobantes | Falta la opción de envío del SEE |
+| `0112` | El usuario debe ser secundario | Se puso el usuario principal |
+| `0113` | El usuario no está afiliado a Facturación Electrónica | Falta afiliar el RUC al SEE – Del Contribuyente |
+| `0140` | Existe un documento igual en proceso | **Ya no es autenticación**: SUNAT recibió el documento |
+
+Un detalle de formato que costó un fallo: **Billme no usa un separador único**.
+`EnviarBoletaFactura` devuelve `a:Client.0103` y `ConsultarCdr` devuelve
+`ns0:0103`. Partir por el punto reconocía el primero y no el segundo, así que la
+sonda daba verde justo en el caso que venía a detectar. `extractSunatCode()`
+busca el número final, que es lo único estable.
+
+**En el campo "Usuario SOL" del panel de Billme va el usuario secundario A SECAS:
+Billme le antepone el RUC por su cuenta.** SUNAT autentica con `RUC + usuario`
+(por eso la credencial canónica de la beta es `20000000001MODDATOS`), pero eso lo
+compone el proveedor. Su documentación no lo dice; se dedujo de tres intentos:
+
+| Valor en el panel | Lo que recibe SUNAT | Resultado |
+|---|---|---|
+| `SECUSTAN` | `20613509446SECUSTAN` | `0103` — ese usuario no existía |
+| `20613509446SECUSTAN` | `2061350944620613509446SECUSTAN` | `0103` — RUC duplicado |
+| `ASTOWNSP` | `20613509446ASTOWNSP` | autentica |
+
+Escribir el RUC delante es un error silencioso: da el mismo `0103` que un usuario
+inexistente, así que parece un problema de SUNAT cuando es de formato.
+
+### Autenticar no es poder emitir
+
+`ASTOWNSP` autenticaba y aun así los envíos seguían fallando con `0110`. La
+diferencia se ve comparando los dos endpoints, y es el diagnóstico más útil de
+toda esta sección:
+
+| Operación | Respuesta | Lectura |
+|---|---|---|
+| `ConsultarCdr` | `0127` "el ticket no existe" | habla del documento consultado → **la autenticación pasó** |
+| `EnviarBoletaFactura` | `0110` "no se pudo obtener el tipo de usuario" | el usuario existe pero **no tiene permiso de envío** |
+
+Lo que faltaba estaba en SUNAT, en la pantalla **«Asignación de Perfiles»** del
+usuario secundario (Clave SOL del usuario principal → nombre de la empresa →
+Administración de Usuarios Secundarios → Asignar perfiles):
+
+```
+TRIBUTARIOS
+  └─ Comprobantes de pago
+      └─ SEE - Del Contribuyente y Envío de Documentos
+          ├─ Servicio de Envío de Documentos Electrónicos   ← el permiso que faltaba
+          ├─ Certificado Digital
+          └─ Consultar Envíos de CPE
+```
+
+Cuidado con el `0140` ("Existe un Documento igual en Proceso, vuelva a intentarlo
+en 15 minutos") mientras se depura esto: es un bloqueo **por documento** que SUNAT
+aplica ANTES de comprobar el permiso de envío, así que un comprobante reintentado
+lo devuelve en bucle y parece que la autenticación ya funciona. Para saber si el
+envío funciona de verdad hay que mandar un **correlativo nuevo**, que no arrastra
+ese bloqueo.
+
 ## Series
 
 Cada tipo de documento tiene serie propia, y por tanto **contador propio**:

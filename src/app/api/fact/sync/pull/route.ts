@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
-import { MAX_SUNAT_ATTEMPTS } from "@/lib/sunat/persist";
 import { pollPendingSummaries } from "@/lib/sunat/poll-summaries";
+import {
+  MAX_SUNAT_ATTEMPTS,
+  SUNAT_SYSTEMIC_FAULTS,
+  isWithinSunatDeadline,
+} from "@/lib/sunat/policy";
 import { resubmitInvoice } from "@/lib/sunat/resubmit";
 
 /**
@@ -19,22 +23,67 @@ import { resubmitInvoice } from "@/lib/sunat/resubmit";
  * duplicada, y la copia había divergido: no seleccionaba `supply_id` —así que
  * perdía el valor referencial de las líneas gratuitas— ni filtraba la referencia
  * de la nota por tipo de documento.
+ *
+ * Además del tope de intentos hay un segundo corte, el del **plazo legal**: 3 días
+ * calendario para lo que empieza por serie `F` y 7 para lo que empieza por `B`,
+ * contados desde el día siguiente a la emisión (`lib/sunat/policy`). Pasado el
+ * plazo SUNAT responde 2600 y el reenvío es siempre un rechazo, así que reintentar
+ * sólo sirve para agotar el contador y esconder el problema detrás de un
+ * «Atascado» que sugiere que se puede recuperar.
+ *
+ * Y hay un **segundo conjunto** de candidatos, los `rejected` por un fallo
+ * sistémico. El razonamiento está en `SUNAT_SYSTEMIC_FAULTS`: esos rechazos no
+ * hablan del comprobante sino de la configuración del emisor o de una caída de
+ * SUNAT, y se arreglan una vez para todos. Sin esto, una tarde con el usuario SOL
+ * mal configurado dejaba toda la facturación del día en `rejected`, fuera del
+ * bucle —que sólo miraba `issued`— y había que rescatarla a mano una por una.
+ * Ahora, el primer pull posterior al arreglo la emite sola.
  */
+const SYSTEMIC_RETRY_COOLDOWN_MIN = 30;
+
 async function autoRetrySunat(tenantId: string) {
   const adminClient = createAdminClient();
 
-  const { data: stuckInvoices } = await adminClient
+  // 1. Los de siempre: emitidos cuya emisión falló, con presupuesto de intentos.
+  const { data: pendientes } = await adminClient
     .from("invoices")
-    .select("id")
+    .select("id, issue_date, created_at, invoice_series(series_code)")
     .eq("tenant_id", tenantId)
     .eq("status", "issued")
     .lt("sunat_attempts", MAX_SUNAT_ATTEMPTS)
     .order("created_at", { ascending: true })
     .limit(5); // Process max 5 per pull to avoid timeout
 
-  if (!stuckInvoices?.length) return;
+  // 2. Rechazados por causa ajena al comprobante. No se mira `sunat_attempts` —el
+  //    contador mide fallos del documento y esto no lo es— pero sí un enfriamiento:
+  //    mientras la configuración siga mal, cada reintento es una llamada perdida al
+  //    proveedor, y sin freno serían 5 cada 2 minutos.
+  const cooldown = new Date(
+    Date.now() - SYSTEMIC_RETRY_COOLDOWN_MIN * 60_000,
+  ).toISOString();
+  const { data: sistemicos } = await adminClient
+    .from("invoices")
+    .select("id, issue_date, created_at, invoice_series(series_code)")
+    .eq("tenant_id", tenantId)
+    .eq("status", "rejected")
+    .in("sunat_response_code", SUNAT_SYSTEMIC_FAULTS as string[])
+    .lt("updated_at", cooldown)
+    .order("created_at", { ascending: true })
+    .limit(5);
 
-  for (const inv of stuckInvoices) {
+  const candidatos = [...(pendientes ?? []), ...(sistemicos ?? [])];
+  if (!candidatos.length) return;
+
+  for (const inv of candidatos) {
+    const series = (
+      inv.invoice_series as unknown as { series_code?: string } | null
+    )?.series_code;
+    if (!isWithinSunatDeadline(inv.issue_date ?? inv.created_at, series)) {
+      console.warn(
+        `[auto-retry] ${inv.id}: fuera del plazo legal de envío, no se reintenta.`,
+      );
+      continue;
+    }
     try {
       const result = await resubmitInvoice(tenantId, inv.id);
       if (!result.success) {

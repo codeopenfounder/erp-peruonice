@@ -3,6 +3,11 @@ import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { broadcastBatchStockUpdate } from "@/lib/stock-broadcast";
+import {
+  createBranchCache,
+  insertInventoryMovement,
+  resolveMovementBranchId,
+} from "@/lib/inventory-movement";
 import { getSunatProvider } from "@/lib/sunat/factory";
 import {
   getNoteEffect,
@@ -14,6 +19,8 @@ import {
   persistSunatResult,
   registerSunatAttempt,
 } from "@/lib/sunat/persist";
+import { buildReferenceValueMap } from "@/lib/sunat/reference-values";
+import { isEmisorRucValid } from "@/lib/sunat/ruc";
 import type { SunatProviderResponse } from "@/lib/sunat/types";
 
 /** Convert empty strings to null (prevents "invalid input syntax for type uuid" errors). */
@@ -211,42 +218,18 @@ export async function POST(request: Request) {
       }
     }
 
-    // Resolve branch_id: try invoices first, then user assignment, then first branch
-    let branchId: string | null = null;
+    // Sede de los movimientos: caja del comprobante → caja asignada al usuario →
+    // sede principal del tenant. La cadena vive ahora en `lib/inventory-movement`
+    // porque los otros diez INSERT de la tabla la necesitan igual, y porque
+    // `branch_id` es NOT NULL: sin ella el movimiento se perdía en silencio.
+    const branchCache = createBranchCache();
     const firstCashRegisterId = invoices.find((i) => i.cash_register_id)?.cash_register_id;
-    if (firstCashRegisterId) {
-      const { data: reg } = await adminClient
-        .from("cash_registers")
-        .select("branch_id")
-        .eq("id", firstCashRegisterId)
-        .single();
-      branchId = reg?.branch_id || null;
-    }
-    if (!branchId) {
-      const { data: assignment } = await adminClient
-        .from("fact_user_assignments")
-        .select("cash_register_id")
-        .eq("user_id", ctx.userId)
-        .eq("is_active", true)
-        .single();
-      if (assignment?.cash_register_id) {
-        const { data: reg } = await adminClient
-          .from("cash_registers")
-          .select("branch_id")
-          .eq("id", assignment.cash_register_id)
-          .single();
-        branchId = reg?.branch_id || null;
-      }
-    }
-    if (!branchId) {
-      const { data: branch } = await adminClient
-        .from("branches")
-        .select("id")
-        .eq("tenant_id", ctx.tenantId)
-        .limit(1)
-        .single();
-      branchId = branch?.id || null;
-    }
+    const branchId = await resolveMovementBranchId(
+      adminClient,
+      ctx.tenantId,
+      { cashRegisterId: firstCashRegisterId, userId: ctx.userId },
+      branchCache,
+    );
 
     const results: {
       local_id: string;
@@ -261,6 +244,13 @@ export async function POST(request: Request) {
       hash_code?: string | null;
       xml_url?: string | null;
       cdr_url?: string | null;
+      /**
+       * Cosas que fallaron DESPUÉS de que el comprobante quedara insertado y con
+       * correlativo. No pueden convertir el push en un fallo —el documento es un
+       * acto fiscal ya consumado— pero tampoco pueden desaparecer: hasta ahora los
+       * INSERT de `inventory_movements` se perdían sin que nadie se enterara.
+       */
+      warnings?: string[];
     }[] = [];
 
     const stockUpdates: { product_id: string; stock_quantity: number }[] = [];
@@ -748,6 +738,11 @@ export async function POST(request: Request) {
         const stockReturned = stockDirection === "return";
         const baseMovementType = stockReturned ? "nc_return" : "sale";
 
+        // Los movimientos que no se pudieron registrar. No abortan el push (el
+        // comprobante ya tiene correlativo y ya está insertado) pero viajan de
+        // vuelta al POS y quedan en el log del servidor.
+        const movementWarnings: string[] = [];
+
         if (stockDirection !== "none") {
           for (const item of inv.items) {
             // Per-item movement type: cortesia overrides "sale"
@@ -774,53 +769,71 @@ export async function POST(request: Request) {
             if (item.product_id && compositeIds.has(item.product_id)) {
               const recipeItems = recipeMap.get(item.product_id) || [];
               for (const ri of recipeItems) {
-                await adminClient.from("inventory_movements").insert({
-                  tenant_id: ctx.tenantId,
-                  entity_type: "supply",
-                  entity_id: ri.supply_id,
-                  quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
-                  movement_type: movementType,
-                  reason: ncNotes || reason,
-                  notes: stockReturned ? null : (item.is_cortesia ? `Cortesia de ${item.description} (x${item.quantity})` : `Venta de ${item.description} (x${item.quantity})`),
-                  branch_id: branchId,
-                  invoice_id: inserted.id,
-                  created_by: ctx.userId,
-                });
+                const { error: movErr } = await insertInventoryMovement(
+                  adminClient,
+                  {
+                    tenant_id: ctx.tenantId,
+                    entity_type: "supply",
+                    entity_id: ri.supply_id,
+                    quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
+                    movement_type: movementType,
+                    reason: ncNotes || reason,
+                    notes: stockReturned ? null : (item.is_cortesia ? `Cortesia de ${item.description} (x${item.quantity})` : `Venta de ${item.description} (x${item.quantity})`),
+                    branch_id: branchId,
+                    invoice_id: inserted.id,
+                    created_by: ctx.userId,
+                  },
+                  { cashRegisterId: inv.cash_register_id, userId: ctx.userId },
+                  branchCache,
+                );
+                if (movErr) movementWarnings.push(movErr);
               }
               continue;
             }
 
             // Supply items (adicionales, cortesías) → movement for the supply
             if (item.supply_id && !item.product_id) {
-              await adminClient.from("inventory_movements").insert({
-                tenant_id: ctx.tenantId,
-                entity_type: "supply",
-                entity_id: item.supply_id,
-                quantity: item.quantity,
-                movement_type: movementType,
-                reason: ncNotes || reason,
-                notes: null,
-                branch_id: branchId,
-                invoice_id: inserted.id,
-                created_by: ctx.userId,
-              });
+              const { error: movErr } = await insertInventoryMovement(
+                adminClient,
+                {
+                  tenant_id: ctx.tenantId,
+                  entity_type: "supply",
+                  entity_id: item.supply_id,
+                  quantity: item.quantity,
+                  movement_type: movementType,
+                  reason: ncNotes || reason,
+                  notes: null,
+                  branch_id: branchId,
+                  invoice_id: inserted.id,
+                  created_by: ctx.userId,
+                },
+                { cashRegisterId: inv.cash_register_id, userId: ctx.userId },
+                branchCache,
+              );
+              if (movErr) movementWarnings.push(movErr);
               continue;
             }
 
             // Simple products → normal movement
             if (item.product_id) {
-              await adminClient.from("inventory_movements").insert({
-                tenant_id: ctx.tenantId,
-                entity_type: "product",
-                entity_id: item.product_id,
-                quantity: item.quantity,
-                movement_type: movementType,
-                reason: ncNotes || reason,
-                notes: null,
-                branch_id: branchId,
-                invoice_id: inserted.id,
-                created_by: ctx.userId,
-              });
+              const { error: movErr } = await insertInventoryMovement(
+                adminClient,
+                {
+                  tenant_id: ctx.tenantId,
+                  entity_type: "product",
+                  entity_id: item.product_id,
+                  quantity: item.quantity,
+                  movement_type: movementType,
+                  reason: ncNotes || reason,
+                  notes: null,
+                  branch_id: branchId,
+                  invoice_id: inserted.id,
+                  created_by: ctx.userId,
+                },
+                { cashRegisterId: inv.cash_register_id, userId: ctx.userId },
+                branchCache,
+              );
+              if (movErr) movementWarnings.push(movErr);
             }
           }
         }
@@ -833,12 +846,24 @@ export async function POST(request: Request) {
             // Get fact config for SUNAT submission
             const { data: factConfigRaw } = await adminClient
               .from("fact_config")
-              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
+              .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account, emit_free_lines")
               .eq("tenant_id", ctx.tenantId)
               .eq("is_active", true)
               .single();
 
-            if (factConfigRaw?.api_token) {
+            // El RUC del emisor se comprueba aquí y no sólo en el formulario
+            // porque pudo guardarse antes de que existiera el checksum. Billme no
+            // lo valida —aceptó una boleta con un RUC ajeno en desarrollo—, así
+            // que emitir con un RUC mal formado significa un rechazo en producción
+            // con el correlativo ya consumido.
+            if (factConfigRaw?.api_token && !isEmisorRucValid(factConfigRaw.ruc)) {
+              const rucError =
+                `El RUC del emisor configurado (${factConfigRaw.ruc}) no pasa el dígito ` +
+                `verificador de SUNAT. Corrígelo en Configuración › POI Fact.`;
+              console.error(`[sync-push] ${rucError}`);
+              await persistSunatError(inserted.id, rucError);
+              movementWarnings.push(rucError);
+            } else if (factConfigRaw?.api_token) {
               const factConfig = { ...factConfigRaw, tenant_id: ctx.tenantId };
               const provider = getSunatProvider(factConfig.provider);
               // Get series code
@@ -891,18 +916,8 @@ export async function POST(request: Request) {
 
               const resolvedAddress = inv.customer_address || branchAddress || factConfig.direccion_fiscal || null;
 
-              // Lookup cost_prices for supply items (SUNAT valor referencial for gratuito items)
-              const supplyIds = inv.items.filter(i => i.supply_id).map(i => i.supply_id!);
-              const supplyCostMap = new Map<string, number>();
-              if (supplyIds.length > 0) {
-                const { data: supplyCosts } = await adminClient
-                  .from("supplies")
-                  .select("id, cost_price")
-                  .in("id", supplyIds);
-                for (const s of supplyCosts || []) {
-                  supplyCostMap.set(s.id, parseFloat(String(s.cost_price)) || 0.01);
-                }
-              }
+              // Valor referencial de las líneas gratuitas (adicionales y cortesías).
+              const referenceValueOf = await buildReferenceValueMap(adminClient, inv.items);
 
               const invoiceForSunat = {
                 id: inserted.id,
@@ -928,7 +943,7 @@ export async function POST(request: Request) {
                   subtotal: item.subtotal,
                   total: item.total,
                   tax_type: item.tax_type,
-                  reference_value: item.supply_id ? supplyCostMap.get(item.supply_id) : undefined,
+                  reference_value: referenceValueOf(item),
                 })),
                 reference_series: refSeries,
                 reference_correlative: refCorrelative,
@@ -981,6 +996,7 @@ export async function POST(request: Request) {
           hash_code: sunatResult?.hashCode || null,
           xml_url: sunatResult?.xmlUrl || null,
           cdr_url: sunatResult?.cdrUrl || null,
+          warnings: movementWarnings.length > 0 ? movementWarnings : undefined,
         });
       } catch (invErr: unknown) {
         results.push({

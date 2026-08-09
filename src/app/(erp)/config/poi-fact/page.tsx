@@ -1438,13 +1438,20 @@ export default function PoiFactPage() {
               </div>
             </div>
             <Separator />
+            {/* El nombre del fichero lleva la versión a propósito: derrota el caché
+                del CDN. Al subir la versión hay que cambiar los tres sitios de
+                kronos-fact (package.json, tauri.conf.json, Cargo.toml), copiar el
+                NSIS a public/downloads y actualizar este enlace — si no, el ERP
+                sigue sirviendo el binario viejo. Es lo que pasó con la 1.0.2: el
+                .exe publicado era anterior a los cambios de multi-POS, así que el
+                device_id y el arreglo del stock decimal no estaban en él. */}
             <a
-              href="/downloads/POI-Fact-Setup-v1.0.2.exe"
+              href="/downloads/POI-Fact-Setup-v1.0.3.exe"
               download="POI-Fact-Setup.exe"
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="size-4" />
-              Descargar Instalador v1.0.2
+              Descargar Instalador v1.0.3
             </a>
           </div>
           <DialogFooter>

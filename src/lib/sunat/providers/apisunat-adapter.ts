@@ -16,6 +16,7 @@ import type {
   SunatInvoiceInput,
   SunatProvider,
   SunatProviderResponse,
+  TicketResult,
   VoidResult,
 } from "../types";
 
@@ -298,5 +299,28 @@ export class ApiSunatAdapter implements SunatProvider {
         message: error instanceof Error ? error.message : "Error de conexión",
       };
     }
+  }
+
+  /**
+   * apisunat no expone un ciclo de ticket: gestiona el resumen por su cuenta y su
+   * `void()` responde con el veredicto en la misma llamada (`/api/v3/voided` y
+   * `/api/v3/daily-summary` devuelven `success`, no un ticket que haya que
+   * consultar). Así que cuando `void()` dijo que sí, la baja está resuelta.
+   *
+   * Se responde `accepted` sin tocar la red en lugar de `pending`: devolver
+   * `pending` dejaría el resumen consultándose cada 2 minutos hasta agotar el tope
+   * y acabaría marcándolo `failed`, que es justo lo contrario de lo que pasó.
+   */
+  // Sin parámetros a propósito: TypeScript admite implementar un método con menos
+  // argumentos de los que declara la interfaz, y aquí ninguno se usa.
+  async checkTicket(): Promise<TicketResult> {
+    return {
+      status: "accepted",
+      responseCode: null,
+      responseDesc:
+        "apisunat resuelve el resumen en la propia llamada de anulación: no hay ticket que consultar.",
+      xmlUrl: null,
+      cdrUrl: null,
+    };
   }
 }

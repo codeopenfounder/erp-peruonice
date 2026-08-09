@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { notifyModuleAction } from "@/actions/notifications";
+import { MAX_SUNAT_ATTEMPTS } from "@/lib/sunat/persist";
 import type {
   InvoiceKPIs,
   InvoiceListItem,
@@ -120,7 +121,11 @@ export async function getInvoices(
   let query = supabase
     .from("invoices")
     .select(
-      "id, document_type, correlative_number, series_id, issue_date, customer_name, customer_document_type, customer_document_number, total, status, payment_method, cash_register_id, created_at, reference_invoice_id, sunat_response_code, sunat_response_desc, sunat_document_id",
+      // `sunat_attempts` y `sunat_ticket_status` viajan a la lista porque son las
+      // dos cosas que hasta ahora sólo existían en la base: un comprobante que
+      // agotó los reintentos era literalmente invisible en el ERP, y el estado del
+      // ticket de una anulación no se podía ver en ninguna pantalla.
+      "id, document_type, correlative_number, series_id, issue_date, customer_name, customer_document_type, customer_document_number, total, status, payment_method, cash_register_id, created_at, reference_invoice_id, sunat_response_code, sunat_response_desc, sunat_document_id, sunat_attempts, sunat_ticket_status",
       { count: "exact" }
     )
     .eq("tenant_id", tenantId)
@@ -139,6 +144,14 @@ export async function getInvoices(
   }
   if (filters.cash_register_id) {
     query = query.eq("cash_register_id", filters.cash_register_id);
+  }
+  // Los dos casos que exigen intervención: dead-letter del auto-retry y ticket de
+  // anulación sin resolver. `or()` porque son condiciones independientes.
+  if (filters.sunat_problems) {
+    query = query
+      .or(
+        `and(sunat_attempts.gte.${MAX_SUNAT_ATTEMPTS},status.in.(issued,rejected,sent_to_sunat)),sunat_ticket_status.eq.pending`,
+      );
   }
 
   // Date range (Peru TZ = UTC-5)
@@ -265,10 +278,95 @@ export async function getInvoices(
       sunat_response_code: inv.sunat_response_code,
       sunat_response_desc: inv.sunat_response_desc,
       sunat_document_id: inv.sunat_document_id,
+      sunat_attempts: inv.sunat_attempts ?? 0,
+      sunat_ticket_status: inv.sunat_ticket_status ?? null,
     };
   });
 
   return { data, total: count ?? 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Invoice Detail
+// ---------------------------------------------------------------------------
+// Rescate de comprobantes atascados en SUNAT
+// ---------------------------------------------------------------------------
+/**
+ * Reenvía a SUNAT un comprobante atascado, desde el ERP.
+ *
+ * Por qué hace falta: `autoRetrySunat` filtra por
+ * `sunat_attempts < MAX_SUNAT_ATTEMPTS`, así que al quinto fallo el comprobante
+ * **desaparece del bucle** y se queda en `issued` para siempre. El único rescate
+ * manual que existía estaba en el POS, lo que hacía depender la contabilidad de
+ * que un cajero abriera caja y se fijara en un botón.
+ *
+ * No pasa por `/api/fact/sunat`: esa ruta exige `validateFactUser` (un JWT de
+ * POS). Aquí se entra por permiso del ERP y se usa directamente `lib/sunat`.
+ *
+ * El contador se reinicia a 0 a propósito: un reintento manual es una decisión
+ * humana, y volver a dejarlo al borde del tope haría que el bucle automático se
+ * rindiera otra vez al primer fallo.
+ */
+export async function retrySunatFromErp(invoiceId: string) {
+  let supabase, tenantId;
+  try {
+    ({ supabase, tenantId } = await requirePermission(
+      "ventas.comprobantes",
+      "edit",
+    ));
+  } catch (e) {
+    return { success: false as const, error: (e as Error).message };
+  }
+
+  const { data: invoice } = await supabase
+    .from("invoices")
+    .select("id, status, series_id, correlative_number, document_type")
+    .eq("id", invoiceId)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (!invoice) return { success: false as const, error: "Comprobante no encontrado" };
+
+  const RETRYABLE = ["issued", "rejected", "sent_to_sunat"];
+  if (!RETRYABLE.includes(invoice.status)) {
+    return {
+      success: false as const,
+      error: `Un comprobante en estado "${invoice.status}" no se reenvía a SUNAT.`,
+    };
+  }
+
+  const { error: resetError } = await supabase
+    .from("invoices")
+    .update({ sunat_attempts: 0 })
+    .eq("id", invoiceId);
+  if (resetError) {
+    return { success: false as const, error: resetError.message };
+  }
+
+  const { resubmitInvoice } = await import("@/lib/sunat/resubmit");
+  const result = await resubmitInvoice(tenantId, invoiceId);
+
+  revalidatePath("/ventas/comprobantes");
+  return result;
+}
+
+/**
+ * Consulta ahora el ticket de las anulaciones pendientes, sin esperar a que un POS
+ * haga su pull. Es el botón manual del reloj descrito en `poll-summaries.ts`.
+ */
+export async function checkPendingVoidTickets() {
+  let tenantId;
+  try {
+    ({ tenantId } = await requirePermission("ventas.comprobantes", "view"));
+  } catch (e) {
+    return { success: false as const, error: (e as Error).message };
+  }
+
+  const { pollPendingSummaries } = await import("@/lib/sunat/poll-summaries");
+  const result = await pollPendingSummaries(tenantId);
+
+  revalidatePath("/ventas/comprobantes");
+  return { success: true as const, ...result };
 }
 
 // ---------------------------------------------------------------------------

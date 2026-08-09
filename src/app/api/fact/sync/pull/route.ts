@@ -1,26 +1,31 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
-import { getSunatProvider } from "@/lib/sunat/factory";
-import {
-  MAX_SUNAT_ATTEMPTS,
-  persistSunatResult,
-  registerSunatAttempt,
-} from "@/lib/sunat/persist";
+import { MAX_SUNAT_ATTEMPTS } from "@/lib/sunat/persist";
+import { pollPendingSummaries } from "@/lib/sunat/poll-summaries";
+import { resubmitInvoice } from "@/lib/sunat/resubmit";
 
 /**
- * Auto-retry SUNAT submission for invoices stuck in 'issued' status.
- * These are invoices that were synced to Supabase but SUNAT submission failed.
+ * Reenvía a SUNAT los comprobantes atascados en `issued`: los que llegaron a
+ * Supabase pero cuya emisión falló.
+ *
+ * El tope de intentos evita que un comprobante que SUNAT rechaza de forma
+ * permanente se reenvíe en cada pull para siempre (~720 veces al día). El precio
+ * es un dead-letter: al llegar al tope el comprobante desaparece de este filtro,
+ * así que la página de comprobantes del ERP lo marca «atascado» y ofrece
+ * reintentarlo a mano.
+ *
+ * La reconstrucción del payload vive ahora en `lib/sunat/resubmit`. Estaba aquí
+ * duplicada, y la copia había divergido: no seleccionaba `supply_id` —así que
+ * perdía el valor referencial de las líneas gratuitas— ni filtraba la referencia
+ * de la nota por tipo de documento.
  */
 async function autoRetrySunat(tenantId: string) {
   const adminClient = createAdminClient();
 
-  // Find invoices in 'issued' status (synced but never sent to SUNAT).
-  // El tope de intentos evita que un comprobante que SUNAT rechaza de forma
-  // permanente se reenvíe en cada pull para siempre (~720 veces al día).
   const { data: stuckInvoices } = await adminClient
     .from("invoices")
-    .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, has_detraction, detraction_code, detraction_percentage, detraction_amount, detraction_payment_method")
+    .select("id")
     .eq("tenant_id", tenantId)
     .eq("status", "issued")
     .lt("sunat_attempts", MAX_SUNAT_ATTEMPTS)
@@ -29,149 +34,18 @@ async function autoRetrySunat(tenantId: string) {
 
   if (!stuckInvoices?.length) return;
 
-  // Get fact config
-  const { data: factConfigRaw } = await adminClient
-    .from("fact_config")
-    .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
-    .eq("tenant_id", tenantId)
-    .eq("is_active", true)
-    .single();
-
-  if (!factConfigRaw?.api_token) return;
-
-  const factConfig = { ...factConfigRaw, tenant_id: tenantId };
-  let provider;
-  try {
-    provider = getSunatProvider(factConfig.provider);
-  } catch (err) {
-    console.error("[auto-retry] Invalid provider:", err);
-    return;
-  }
-
   for (const inv of stuckInvoices) {
     try {
-      // Get series code
-      const { data: seriesData } = await adminClient
-        .from("invoice_series")
-        .select("series_code")
-        .eq("id", inv.series_id)
-        .single();
-
-      // Use denormalized customer data from invoice, fallback to customer lookup
-      let customerDocType = inv.customer_document_type;
-      let customerDocNumber = inv.customer_document_number;
-      let customerName = inv.customer_name;
-      let customerAddress = inv.customer_address;
-
-      if (!customerDocType && inv.customer_id) {
-        const { data: cust } = await adminClient
-          .from("customers")
-          .select("document_type, document_number, legal_name, address")
-          .eq("id", inv.customer_id)
-          .single();
-        if (cust) {
-          customerDocType = cust.document_type;
-          customerDocNumber = cust.document_number;
-          customerName = cust.legal_name;
-          customerAddress = cust.address;
-        }
+      const result = await resubmitInvoice(tenantId, inv.id);
+      if (!result.success) {
+        console.error(`[auto-retry] ${inv.id}: ${result.error}`);
       }
-
-      // Resolve branch address for fallback chain: customer → branch → fiscal
-      let branchAddress: string | null = null;
-      if (inv.cash_register_id) {
-        const { data: reg } = await adminClient
-          .from("cash_registers")
-          .select("branch_id")
-          .eq("id", inv.cash_register_id)
-          .single();
-        if (reg?.branch_id) {
-          const { data: branch } = await adminClient
-            .from("branches")
-            .select("address")
-            .eq("id", reg.branch_id)
-            .single();
-          branchAddress = branch?.address || null;
-        }
-      }
-
-      // Get items
-      const { data: items } = await adminClient
-        .from("invoice_items")
-        .select("description, quantity, unit_price, unit_of_measure, igv_rate, igv_amount, subtotal, total, tax_type")
-        .eq("invoice_id", inv.id)
-        .order("sort_order");
-
-      // Resolve reference for NC/ND
-      let refSeries: string | undefined;
-      let refCorrelative: number | undefined;
-      let refDocType: string | undefined;
-      if (inv.reference_invoice_id) {
-        const { data: refInv } = await adminClient
-          .from("invoices")
-          .select("series_id, correlative_number, document_type")
-          .eq("id", inv.reference_invoice_id)
-          .single();
-        if (refInv) {
-          const { data: refSeriesData } = await adminClient
-            .from("invoice_series")
-            .select("series_code")
-            .eq("id", refInv.series_id)
-            .single();
-          refSeries = refSeriesData?.series_code;
-          refCorrelative = refInv.correlative_number;
-          refDocType = refInv.document_type;
-        }
-      }
-
-      const invoiceForSunat = {
-        id: inv.id,
-        document_type: inv.document_type,
-        series_code: seriesData?.series_code || "B001",
-        correlative_number: inv.correlative_number,
-        customer_document_type: customerDocType || null,
-        customer_document_number: customerDocNumber || null,
-        customer_name: customerName || null,
-        customer_address: customerAddress || branchAddress || factConfig.direccion_fiscal || null,
-        op_gravada: inv.op_gravada,
-        op_exonerada: inv.op_exonerada,
-        op_inafecta: inv.op_inafecta,
-        igv_total: inv.igv_total,
-        total: inv.total,
-        items: (items || []).map((item) => ({
-          description: item.description,
-          quantity: item.quantity,
-          unit_price: item.unit_price,
-          unit_of_measure: item.unit_of_measure,
-          igv_rate: item.igv_rate,
-          igv_amount: item.igv_amount,
-          subtotal: item.subtotal,
-          total: item.total,
-          tax_type: item.tax_type,
-        })),
-        reference_series: refSeries,
-        reference_correlative: refCorrelative,
-        reference_document_type: refDocType,
-        reference_reason: inv.reference_reason || undefined,
-        created_at: inv.created_at,
-        // Sin esto, una factura con SPOT reenviada por el auto-retry se emitía
-        // sin detracción, es decir: un comprobante distinto del original.
-        has_detraction: inv.has_detraction || false,
-        detraction_code: inv.detraction_code || null,
-        detraction_percentage: inv.detraction_percentage ?? null,
-        detraction_amount: inv.detraction_amount ?? null,
-        detraction_payment_method: inv.detraction_payment_method || null,
-        detraction_account: factConfigRaw.detraction_account || null,
-      };
-
-      await registerSunatAttempt(inv.id);
-      const result = await provider.submit(factConfig, inv.id, invoiceForSunat);
-      await persistSunatResult(inv.id, result);
     } catch (err) {
       console.error(`[auto-retry] SUNAT retry failed for ${inv.id}:`, err);
     }
   }
 }
+
 
 export async function POST(request: Request) {
   try {
@@ -426,6 +300,14 @@ export async function POST(request: Request) {
         console.error("[sync-pull] Auto-retry error:", err)
       );
 
+      // Consulta de los tickets de anulación pendientes. Mismo reloj y mismo
+      // fire-and-forget: es el único disparador periódico que existe (no hay cron
+      // en Vercel) y sin él la baja de una factura se quedaba para siempre en
+      // "recibida por SUNAT" sin llegar nunca a "aceptada".
+      pollPendingSummaries(ctx.tenantId).catch((err) =>
+        console.error("[sync-pull] Poll de resúmenes error:", err)
+      );
+
       // Fetch invoice statuses (pending/recent SUNAT updates)
       const { data: invoiceStatuses } = await adminClient
         .from("invoices")
@@ -640,6 +522,14 @@ export async function POST(request: Request) {
       // Auto-retry stuck invoices (fire-and-forget — don't block sync response)
       autoRetrySunat(ctx.tenantId).catch((err) =>
         console.error("[sync-pull] Auto-retry error:", err)
+      );
+
+      // Consulta de los tickets de anulación pendientes. Mismo reloj y mismo
+      // fire-and-forget: es el único disparador periódico que existe (no hay cron
+      // en Vercel) y sin él la baja de una factura se quedaba para siempre en
+      // "recibida por SUNAT" sin llegar nunca a "aceptada".
+      pollPendingSummaries(ctx.tenantId).catch((err) =>
+        console.error("[sync-pull] Poll de resúmenes error:", err)
       );
 
       // Fetch invoice statuses updated since last sync

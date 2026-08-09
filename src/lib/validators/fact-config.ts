@@ -1,7 +1,15 @@
 import { z } from "zod";
+import { isValidRuc } from "@/lib/sunat/ruc";
 
 export const factConfigSchema = z.object({
-  ruc: z.string().regex(/^\d{11}$/, "El RUC debe tener 11 dígitos"),
+  // Longitud + prefijo + dígito verificador. El regex a secas dejaba pasar
+  // cualquier cadena de 11 dígitos, y Billme no valida el RUC del emisor: en
+  // desarrollo aceptó una boleta con un RUC ajeno. El fallo aparecía en
+  // producción, con el correlativo ya consumido.
+  ruc: z
+    .string()
+    .regex(/^\d{11}$/, "El RUC debe tener 11 dígitos")
+    .refine(isValidRuc, "El RUC no es válido: revisa el dígito verificador"),
   razon_social: z.string().min(2, "Razon social requerida"),
   direccion_fiscal: z.string().optional().or(z.literal("")),
   ubigeo: z.string().optional().or(z.literal("")),

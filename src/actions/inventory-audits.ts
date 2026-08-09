@@ -14,6 +14,7 @@ import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { broadcastBatchStockUpdate, ERP_SOURCE } from "@/lib/stock-broadcast";
+import { insertInventoryMovement } from "@/lib/inventory-movement";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -479,6 +480,7 @@ export async function createAudit(input: unknown) {
   // Apply stock adjustments for items with differences (atomic via RPC)
   const auditProductUpdates: { product_id: string; stock_quantity: number }[] = [];
   const auditSupplyUpdates: { supply_id: string; stock_quantity: number }[] = [];
+  const movementWarnings: string[] = [];
 
   for (const item of items) {
     const diff = Number(item.difference);
@@ -501,18 +503,29 @@ export async function createAudit(input: unknown) {
       }
     }
 
-    // Create inventory movement for the adjustment
-    await supabase.from("inventory_movements").insert({
-      tenant_id: tenantId,
-      entity_type: item.entity_type,
-      entity_id: item.entity_id,
-      quantity: Math.abs(diff),
-      movement_type: "adjustment",
-      reason: `Auditoría de inventario — ${diff > 0 ? "sobrante" : "faltante"}`,
-      notes: notes || null,
-      branch_id,
-      created_by: responsible_id || userId,
-    });
+    // Create inventory movement for the adjustment.
+    //
+    // El stock ya se ajustó por RPC arriba, así que el fallo se acumula y se
+    // devuelve como aviso: revertir un ajuste de auditoría a medias sería peor
+    // que un kardex incompleto que el usuario sabe que lo está. Antes este INSERT
+    // no comprobaba nada y una auditoría podía mover 40 saldos sin dejar una sola
+    // línea de kardex.
+    const { error: movError } = await insertInventoryMovement(
+      supabase,
+      {
+        tenant_id: tenantId,
+        entity_type: item.entity_type,
+        entity_id: item.entity_id,
+        quantity: Math.abs(diff),
+        movement_type: "adjustment",
+        reason: `Auditoría de inventario — ${diff > 0 ? "sobrante" : "faltante"}`,
+        notes: notes || null,
+        branch_id,
+        created_by: responsible_id || userId,
+      },
+      { userId },
+    );
+    if (movError) movementWarnings.push(`${item.entity_name}: ${movError}`);
   }
 
   void notifyModuleAction({
@@ -540,5 +553,9 @@ export async function createAudit(input: unknown) {
   return {
     success: true as const,
     auditId: audit.id,
+    warning:
+      movementWarnings.length > 0
+        ? `La auditoría se aplicó, pero ${movementWarnings.length} movimiento(s) de kardex no se pudieron registrar: ${movementWarnings.join(" · ")}`
+        : undefined,
   };
 }

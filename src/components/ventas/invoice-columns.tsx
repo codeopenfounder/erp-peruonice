@@ -1,7 +1,16 @@
 "use client";
 
 import type { ColumnDef } from "@tanstack/react-table";
-import { Eye, Copy, ExternalLink, Download, MoreHorizontal } from "lucide-react";
+import {
+  Eye,
+  Copy,
+  ExternalLink,
+  Download,
+  MoreHorizontal,
+  RotateCcw,
+  Search,
+  TriangleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -51,9 +60,38 @@ function getDaysRemaining(issueDate: string, docType: string, status: string): n
   return Math.ceil((deadline.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+/**
+ * Tope de reenvíos automáticos, espejado de `lib/sunat/persist`.
+ *
+ * Se duplica el número a propósito: importar el módulo de servidor desde un
+ * componente cliente arrastraría el cliente admin de Supabase al bundle del
+ * navegador. Si cambia allí, cambia aquí.
+ */
+const MAX_SUNAT_ATTEMPTS = 5;
+
+/** Estados desde los que tiene sentido reenviar a SUNAT. */
+const RETRYABLE_STATUSES = new Set(["issued", "rejected", "sent_to_sunat"]);
+
+/**
+ * Un comprobante que agotó los reintentos automáticos.
+ *
+ * Es el dead-letter: `autoRetrySunat` filtra por `sunat_attempts < 5`, así que al
+ * quinto fallo deja de verlo y el comprobante se queda en `issued` **para
+ * siempre**, sin estado, sin XML y sin CDR. No había ninguna pantalla del ERP
+ * donde apareciera.
+ */
+export function isSunatStuck(invoice: InvoiceListItem): boolean {
+  return (
+    RETRYABLE_STATUSES.has(invoice.status) &&
+    (invoice.sunat_attempts ?? 0) >= MAX_SUNAT_ATTEMPTS
+  );
+}
+
 export function getInvoiceColumns(
   onView: (id: string) => void,
-  onDownloadPdf: (id: string) => void
+  onDownloadPdf: (id: string) => void,
+  onRetrySunat?: (id: string) => void,
+  onCheckVoidTicket?: () => void
 ): ColumnDef<InvoiceListItem>[] {
   return [
     {
@@ -115,7 +153,31 @@ export function getInvoiceColumns(
     {
       accessorKey: "status",
       header: "Estado",
-      cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
+      cell: ({ row }) => {
+        const inv = row.original;
+        return (
+          <div className="flex items-center gap-1.5">
+            <InvoiceStatusBadge status={inv.status} />
+            {isSunatStuck(inv) && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive"
+                title={`Se reintentó ${inv.sunat_attempts} veces sin éxito. El reenvío automático ya no lo toma: usa «Reintentar SUNAT».`}
+              >
+                <TriangleAlert className="size-3" />
+                Atascado
+              </span>
+            )}
+            {inv.sunat_ticket_status === "pending" && (
+              <span
+                className="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600"
+                title="La baja se envió a SUNAT y devolvió un ticket. Está esperando la respuesta."
+              >
+                Ticket pendiente
+              </span>
+            )}
+          </div>
+        );
+      },
     },
     {
       accessorKey: "total",
@@ -166,6 +228,23 @@ export function getInvoiceColumns(
               <ExternalLink className="mr-2 size-3.5" />
               Ver transacción
             </DropdownMenuItem>
+            {onRetrySunat && RETRYABLE_STATUSES.has(row.original.status) && (
+              <DropdownMenuItem onClick={() => onRetrySunat(row.original.id)}>
+                <RotateCcw className="mr-2 size-3.5" />
+                Reintentar SUNAT
+                {(row.original.sunat_attempts ?? 0) > 0 && (
+                  <span className="ml-1 text-[10px] text-muted-foreground">
+                    ({row.original.sunat_attempts} intentos)
+                  </span>
+                )}
+              </DropdownMenuItem>
+            )}
+            {onCheckVoidTicket && row.original.sunat_ticket_status === "pending" && (
+              <DropdownMenuItem onClick={onCheckVoidTicket}>
+                <Search className="mr-2 size-3.5" />
+                Consultar estado de anulación
+              </DropdownMenuItem>
+            )}
             {row.original.sunat_response_code && (
               <DropdownMenuItem
                 onClick={() => {

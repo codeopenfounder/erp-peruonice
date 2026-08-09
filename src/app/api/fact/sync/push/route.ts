@@ -4,11 +4,45 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { broadcastBatchStockUpdate } from "@/lib/stock-broadcast";
 import { getSunatProvider } from "@/lib/sunat/factory";
+import {
+  getNoteEffect,
+  isNoteDocument,
+  noteReasonLabel,
+} from "@/lib/sunat/note-effects";
+import {
+  persistSunatError,
+  persistSunatResult,
+  registerSunatAttempt,
+} from "@/lib/sunat/persist";
+import type { SunatProviderResponse } from "@/lib/sunat/types";
 
 /** Convert empty strings to null (prevents "invalid input syntax for type uuid" errors). */
 function nullIfEmpty(v: unknown): string | null {
   if (typeof v === "string" && v.trim() !== "") return v;
   return null;
+}
+
+/**
+ * Sede a la que pertenece una caja.
+ *
+ * El caché lo aporta quien llama y vive sólo lo que dura la petición: a nivel de
+ * módulo sobreviviría entre invocaciones en una instancia caliente de Vercel y
+ * serviría una sede obsoleta si la caja cambiara de local.
+ */
+async function resolveBranchOfRegister(
+  admin: ReturnType<typeof createAdminClient>,
+  cashRegisterId: string,
+  cache: Map<string, string | null>,
+): Promise<string | null> {
+  if (cache.has(cashRegisterId)) return cache.get(cashRegisterId) ?? null;
+  const { data } = await admin
+    .from("cash_registers")
+    .select("branch_id")
+    .eq("id", cashRegisterId)
+    .maybeSingle();
+  const branchId = data?.branch_id ?? null;
+  cache.set(cashRegisterId, branchId);
+  return branchId;
 }
 
 interface PushInvoiceItem {
@@ -54,6 +88,12 @@ interface PushInvoice {
   opening_id: string | null;
   reference_invoice_id: string | null;
   reference_reason: string | null;
+  /**
+   * Comprobante que este documento re-emite tras una NC motivo 02 (error en el
+   * RUC). Presente significa que el cobro y la salida de stock ya los registró
+   * el original, así que ni se crea movimiento de caja ni se toca inventario.
+   */
+  reissue_of_invoice_id?: string | null;
   promotion_id: string | null;
   promotion_discount: number;
   promotion_uses: number;
@@ -71,6 +111,54 @@ interface PushInvoice {
   detraction_payment_method?: string | null;
   items: PushInvoiceItem[];
   created_at: string;
+}
+
+/**
+ * Movimiento de caja que corresponde al comprobante, o `null` si no debe
+ * crearse ninguno. Espejo exacto de `resolveCashEffect` en
+ * `kronos-fact/src/lib/invoicing/create-invoice.ts`.
+ */
+function resolveCashMovementType(
+  inv: PushInvoice,
+  reissueOf: string | null,
+): "sale" | "refund" | "nd_charge" | null {
+  // La re-emisión hereda el cobro del comprobante original: no cobra otra vez.
+  if (reissueOf) return null;
+
+  if (!isNoteDocument(inv.document_type)) return "sale";
+
+  switch (getNoteEffect(inv.document_type, inv.reference_reason)?.cash) {
+    case "refund":
+      return "refund";
+    case "charge":
+      return "nd_charge";
+    default:
+      return null;
+  }
+}
+
+function describeCashMovement(inv: PushInvoice, type: string): string {
+  if (isNoteDocument(inv.document_type)) {
+    const label = noteReasonLabel(inv.document_type, inv.reference_reason);
+    return inv.document_type === "nota_credito" ? `NC: ${label}` : `ND: ${label}`;
+  }
+  const doc = inv.document_type === "factura" ? "Factura" : "Boleta";
+  return type === "sale" ? `Venta ${doc}` : doc;
+}
+
+/** Dirección del inventario para este comprobante. */
+function resolveStockDirection(
+  inv: PushInvoice,
+  reissueOf: string | null,
+): "return" | "issue" | "none" {
+  // La mercadería ya salió con el comprobante original y la NC motivo 02 no la
+  // devuelve: volver a descontarla contaría la salida dos veces.
+  if (reissueOf) return "none";
+
+  if (!isNoteDocument(inv.document_type)) return "issue";
+
+  const effect = getNoteEffect(inv.document_type, inv.reference_reason)?.stock;
+  return effect === "return" ? "return" : effect === "issue" ? "issue" : "none";
 }
 
 interface PushMovement {
@@ -169,9 +257,42 @@ export async function POST(request: Request) {
       sunat_status?: string | null;
       sunat_document_id?: string | null;
       sunat_response_code?: string | null;
+      sunat_response_desc?: string | null;
+      hash_code?: string | null;
+      xml_url?: string | null;
+      cdr_url?: string | null;
     }[] = [];
 
     const stockUpdates: { product_id: string; stock_quantity: number }[] = [];
+    // El stock de insumos nunca se propagaba: las RPC de supply se llamaban
+    // descartando el valor devuelto, así que un adicional, una merma o la receta
+    // de un compuesto sólo llegaban a las otras cajas en el pull siguiente.
+    //
+    // Se acumulan los IDS tocados y se leen todos de una sola vez al final, en vez
+    // de ir recogiendo cada retorno: así entra también el consumo indirecto de la
+    // receta de un compuesto, que no pasa por ninguna RPC de supply.
+    const touchedSupplyIds = new Set<string>();
+    const supplyStockUpdates: { supply_id: string; stock_quantity: number }[] = [];
+
+    /**
+     * Líneas que se vendieron sin stock suficiente.
+     *
+     * No se bloquea la emisión: cuando se llega aquí el comprobante ya tiene
+     * correlativo, ya está insertado y es un acto fiscal consumado. Lo que
+     * faltaba era **saberlo** — `GREATEST(stock - qty, 0)` saturaba en cero sin
+     * error, sin excepción y sin dejar rastro.
+     */
+    const oversells: {
+      entity_id: string;
+      description: string;
+      requested: number;
+      shortfall: number;
+      series_id: string;
+      correlative: number;
+    }[] = [];
+
+    /** Sede por caja, sólo durante esta petición. */
+    const branchOfRegisterCache = new Map<string, string | null>();
 
     // Process invoices sequentially (correlative must be atomic)
     for (const inv of invoices) {
@@ -195,6 +316,71 @@ export async function POST(request: Request) {
           }
         }
 
+        // Una NC/ND no puede emitirse desde otra SEDE que el comprobante que
+        // modifica: la devolución en efectivo saldría de un cajón que nunca
+        // recibió el cobro, y el arqueo descuadraría en las dos sedes.
+        //
+        // Hoy esto es imposible por accidente —la bandeja del POS es 100 % SQLite
+        // local, así que un comprobante de otra máquina ni se ve—, pero un
+        // accidente no es una regla: en cuanto la bandeja consulte al servidor,
+        // el hueco queda abierto. Se comprueba ANTES de pedir el correlativo,
+        // que es irreversible.
+        if (inv.reference_invoice_id && inv.cash_register_id) {
+          const noteBranch = await resolveBranchOfRegister(
+            adminClient,
+            inv.cash_register_id,
+            branchOfRegisterCache,
+          );
+          const { data: refInvoice } = await adminClient
+            .from("invoices")
+            .select("cash_register_id")
+            .eq("id", inv.reference_invoice_id)
+            .eq("tenant_id", ctx.tenantId)
+            .maybeSingle();
+
+          if (refInvoice?.cash_register_id) {
+            const refBranch = await resolveBranchOfRegister(
+              adminClient,
+              refInvoice.cash_register_id,
+              branchOfRegisterCache,
+            );
+
+            if (noteBranch && refBranch && noteBranch !== refBranch) {
+              results.push({
+                local_id: inv.local_id,
+                server_id: null,
+                correlative: null,
+                success: false,
+                error:
+                  "La nota debe emitirse desde la misma sede que el comprobante que modifica.",
+              });
+              continue;
+            }
+
+            // Distinta caja dentro de la misma sede sí se permite —un supervisor
+            // puede acreditar desde otra caja—, pero queda registrado: el efectivo
+            // sale de un cajón distinto del que lo recibió.
+            if (refInvoice.cash_register_id !== inv.cash_register_id) {
+              console.warn(
+                `[sync-push] Nota ${inv.local_id} emitida desde la caja ${inv.cash_register_id} ` +
+                  `sobre un comprobante de la caja ${refInvoice.cash_register_id}`,
+              );
+              await adminClient.from("audit_log").insert({
+                tenant_id: ctx.tenantId,
+                user_id: ctx.userId,
+                action: "cross_register_note",
+                resource: "invoices",
+                resource_id: inv.reference_invoice_id,
+                new_data: {
+                  note_cash_register_id: inv.cash_register_id,
+                  original_cash_register_id: refInvoice.cash_register_id,
+                  branch_id: noteBranch,
+                },
+              });
+            }
+          }
+        }
+
         // Get next correlative atomically
         const { data: corrData, error: corrError } = await adminClient.rpc(
           "fn_next_correlative",
@@ -213,6 +399,29 @@ export async function POST(request: Request) {
         }
 
         const correlative = corrData as number;
+
+        // ¿El comprobante re-emitido está en el servidor?
+        //
+        // Si no está, tampoco están su movimiento de caja ni su salida de stock,
+        // así que esta re-emisión debe comportarse como una venta normal: es la
+        // única forma de que el cobro y la salida se registren UNA vez. Además
+        // evita que la FK reviente el insert y se pierda un correlativo ya
+        // consumido.
+        let reissueOf = nullIfEmpty(inv.reissue_of_invoice_id);
+        if (reissueOf) {
+          const { data: original } = await adminClient
+            .from("invoices")
+            .select("id")
+            .eq("id", reissueOf)
+            .eq("tenant_id", ctx.tenantId)
+            .maybeSingle();
+          if (!original) {
+            console.warn(
+              `[sync-push] Re-emisión ${inv.local_id}: el comprobante original ${reissueOf} no está en el servidor; se registra como venta normal`,
+            );
+            reissueOf = null;
+          }
+        }
 
         // Insert invoice
         const { data: inserted, error: insertError } = await adminClient
@@ -241,6 +450,7 @@ export async function POST(request: Request) {
             cashier_id: ctx.userId,
             reference_invoice_id: inv.reference_invoice_id,
             reference_reason: inv.reference_reason,
+            reissue_of_invoice_id: reissueOf,
             promotion_id: inv.promotion_id,
             promotion_discount: inv.promotion_discount,
             promotion_uses: inv.promotion_uses || 0,
@@ -370,26 +580,24 @@ export async function POST(request: Request) {
           }
         }
 
-        // Create cash register movement for this invoice
+        // Movimiento de caja del comprobante, según la matriz de efectos.
+        //
+        // Las reglas estaban escritas a mano y no coincidían con las del POS:
+        // los motivos NC 02, 03 y 10 creaban un `refund` en local que aquí no se
+        // creaba, y toda nota de débito se registraba como `sale` cuando el POS
+        // la registra como `nd_charge`. El mismo hecho quedaba clasificado de dos
+        // formas distintas según dónde se mirase.
         if (inv.opening_id) {
-          const isNc = inv.document_type === "nota_credito";
-          const isNd = inv.document_type === "nota_debito";
-          const ncReturn = isNc && ["01", "06", "07"].includes(inv.reference_reason || "");
-          const ncPriceAdjust = isNc && ["04", "05", "09"].includes(inv.reference_reason || "");
-          const shouldCreate = (!isNc && !isNd) || ncReturn || ncPriceAdjust || isNd;
+          const movementType = resolveCashMovementType(inv, reissueOf);
 
-          if (shouldCreate) {
+          if (movementType) {
             try {
               await adminClient.from("cash_register_movements").insert({
                 tenant_id: ctx.tenantId,
                 opening_id: inv.opening_id,
-                type: (ncReturn || ncPriceAdjust) ? "refund" : "sale",
+                type: movementType,
                 amount: inv.total,
-                description: isNc
-                  ? (ncReturn ? "Devolución NC" : "Ajuste precio NC")
-                  : isNd
-                    ? "Ajuste ND"
-                    : `Venta ${inv.document_type === "factura" ? "Factura" : "Boleta"}`,
+                description: describeCashMovement(inv, movementType),
                 invoice_id: inserted.id,
                 payment_method: inv.payment_method || "cash",
                 created_by: ctx.userId,
@@ -417,69 +625,78 @@ export async function POST(request: Request) {
           });
         }
 
-        const isNcDocument = inv.document_type === "nota_credito";
-        const isNdDocument = inv.document_type === "nota_debito";
-        const ncStockReturn = isNcDocument && ["01", "06", "07"].includes(inv.reference_reason || "");
-        // ND motivo 02 with real product_ids = quantity omission → stock goes out
-        const ndStockOut = isNdDocument && inv.reference_reason === "02";
+        // Movimiento de inventario, según la misma matriz.
+        //
+        //   "return" → la mercadería vuelve (NC 01, 06, 07)
+        //   "issue"  → sale mercadería (venta normal, y NC 08 bonificación)
+        //   "none"   → no se toca (NC 02/03/04/05/09/10 y TODAS las ND)
+        //
+        // Antes la ND motivo 02 descontaba stock, lo que sólo tenía sentido
+        // mientras el POS ofrecía un subtipo "cantidad" que entregaba unidades
+        // adicionales. Eso es una venta nueva y exige su propio comprobante
+        // (D.L. 25632 art. 2), así que el subtipo desapareció y con él la rama.
+        const stockDirection = resolveStockDirection(inv, reissueOf);
 
-        if (isNcDocument && ncStockReturn) {
-          // NC with stock return (motivos 01, 06, 07): INCREMENT stock back
+        if (stockDirection !== "none") {
+          const increment = stockDirection === "return";
+
           for (const item of inv.items) {
             if (item.product_id) {
-              const { data: remaining, error: incErr } = await adminClient.rpc("fn_increment_stock", {
-                p_product_id: item.product_id,
-                p_quantity: item.quantity,
-              });
-              if (incErr) {
-                console.error("[sync-push] NC stock increment failed:", incErr.message);
-              } else if (typeof remaining === "number" && remaining >= 0) {
-                stockUpdates.push({ product_id: item.product_id, stock_quantity: remaining });
+              // En la salida se usa la variante `_checked`, que además del stock
+              // restante devuelve el FALTANTE. `fn_decrement_stock` hace
+              // GREATEST(stock - qty, 0): satura en cero sin error y sin señal,
+              // así que dos cajas offline podían vender la misma última unidad y
+              // nadie se enteraba nunca.
+              const { data: stockResult, error: stockErr } = increment
+                ? await adminClient.rpc("fn_increment_stock", {
+                    p_product_id: item.product_id,
+                    p_quantity: item.quantity,
+                  })
+                : await adminClient.rpc("fn_decrement_stock_checked", {
+                    p_product_id: item.product_id,
+                    p_quantity: item.quantity,
+                  });
+
+              if (stockErr) {
+                console.error(
+                  `[sync-push] ${increment ? "fn_increment_stock" : "fn_decrement_stock_checked"} failed:`,
+                  stockErr.message,
+                );
+              } else {
+                const remaining = increment
+                  ? (stockResult as number | null)
+                  : Number((stockResult as { remaining?: number } | null)?.remaining ?? NaN);
+                const shortfall = increment
+                  ? 0
+                  : Number((stockResult as { shortfall?: number } | null)?.shortfall ?? 0);
+
+                if (typeof remaining === "number" && Number.isFinite(remaining) && remaining >= 0) {
+                  stockUpdates.push({ product_id: item.product_id, stock_quantity: remaining });
+                }
+                if (shortfall > 0) {
+                  oversells.push({
+                    entity_id: item.product_id,
+                    description: item.description,
+                    requested: item.quantity,
+                    shortfall,
+                    series_id: inv.series_id,
+                    correlative,
+                  });
+                }
               }
             }
           }
+
           for (const item of inv.items) {
             if (item.supply_id && !item.product_id) {
-              const { error: supplyErr } = await adminClient.rpc("fn_increment_supply_stock", {
-                p_supply_id: item.supply_id,
-                p_quantity: item.quantity,
-              });
+              const { error: supplyErr } = await adminClient.rpc(
+                increment ? "fn_increment_supply_stock" : "fn_decrement_supply_stock",
+                { p_supply_id: item.supply_id, p_quantity: item.quantity },
+              );
               if (supplyErr) {
-                console.error("[sync-push] NC supply stock increment failed:", supplyErr.message);
-              }
-              const { error: refreshErr } = await adminClient.rpc("fn_refresh_composite_stock_for_supply", {
-                p_supply_id: item.supply_id,
-              });
-              if (refreshErr) {
-                console.error("[sync-push] Composite stock refresh failed:", refreshErr.message);
-              }
-            }
-          }
-        } else if (isNdDocument && !ndStockOut) {
-          // ND motivos 01, 03 or motivo 02 "price": NO stock changes (financial only)
-        } else if (!isNcDocument) {
-          // Normal sale or ND motivo 02 "quantity" (items with product_id): decrement stock
-          for (const item of inv.items) {
-            if (item.product_id) {
-              const { data: remaining, error: decErr } = await adminClient.rpc("fn_decrement_stock", {
-                p_product_id: item.product_id,
-                p_quantity: item.quantity,
-              });
-              if (decErr) {
-                console.error("[sync-push] fn_decrement_stock failed:", decErr.message);
-              } else if (typeof remaining === "number" && remaining >= 0) {
-                stockUpdates.push({ product_id: item.product_id, stock_quantity: remaining });
-              }
-            }
-          }
-          for (const item of inv.items) {
-            if (item.supply_id && !item.product_id) {
-              const { error: supplyErr } = await adminClient.rpc("fn_decrement_supply_stock", {
-                p_supply_id: item.supply_id,
-                p_quantity: item.quantity,
-              });
-              if (supplyErr) {
-                console.error("[sync-push] Supply stock decrement failed:", supplyErr.message);
+                console.error("[sync-push] Supply stock update failed:", supplyErr.message);
+              } else {
+                touchedSupplyIds.add(item.supply_id);
               }
               const { error: refreshErr } = await adminClient.rpc("fn_refresh_composite_stock_for_supply", {
                 p_supply_id: item.supply_id,
@@ -490,7 +707,6 @@ export async function POST(request: Request) {
             }
           }
         }
-        // NC with motivos 02,03,04,05,09,10: NO stock changes (informational/financial only)
 
         // Identify services + composites (different movement logic)
         const productIdsInInvoice = [...new Set(inv.items.filter(i => i.product_id).map(i => i.product_id!))];
@@ -518,22 +734,24 @@ export async function POST(request: Request) {
             for (const r of recipes || []) {
               if (!recipeMap.has(r.product_id)) recipeMap.set(r.product_id, []);
               recipeMap.get(r.product_id)!.push({ supply_id: r.supply_id, quantity_needed: Number(r.quantity_needed) });
+              // Vender un compuesto consume sus insumos dentro de
+              // `fn_decrement_stock`, sin pasar por ninguna RPC de supply: sin
+              // esto, ese consumo no se propagaba a las otras cajas.
+              if (stockDirection !== "none") touchedSupplyIds.add(r.supply_id);
             }
           }
         }
 
-        // Record inventory movements
-        // For NC with stock return (01,06,07): movement_type = "nc_return"
-        // For normal sales: movement_type = "sale"
-        // For cortesia items: movement_type = "cortesia"
-        // For NC without stock (02,03,04,05,09,10): skip inventory movements
-        const baseMovementType = ncStockReturn ? "nc_return" : "sale";
-        const shouldRecordMovements = !isNcDocument || ncStockReturn;
+        // Trazabilidad del inventario. Se registra exactamente cuando el stock
+        // se movió, así que sigue a `stockDirection`, no al tipo de documento:
+        //   "return" → nc_return · "issue" → sale (o cortesia por línea).
+        const stockReturned = stockDirection === "return";
+        const baseMovementType = stockReturned ? "nc_return" : "sale";
 
-        if (shouldRecordMovements) {
+        if (stockDirection !== "none") {
           for (const item of inv.items) {
             // Per-item movement type: cortesia overrides "sale"
-            const movementType = (!ncStockReturn && item.is_cortesia) ? "cortesia" : baseMovementType;
+            const movementType = (!stockReturned && item.is_cortesia) ? "cortesia" : baseMovementType;
 
             const CORTESIA_LABELS: Record<string, string> = {
               cliente_insatisfecho: "Cliente insatisfecho",
@@ -545,7 +763,9 @@ export async function POST(request: Request) {
               ? (CORTESIA_LABELS[item.cortesia_reason] || item.cortesia_reason)
               : "Sin motivo";
             const reason = item.is_cortesia ? `Cortesía: ${reasonLabel}` : null;
-            const ncNotes = ncStockReturn ? `NC: ${inv.reference_reason === "01" ? "Anulación" : inv.reference_reason === "06" ? "Devolución total" : "Devolución por item"}` : null;
+            const ncNotes = isNoteDocument(inv.document_type)
+              ? `NC ${inv.reference_reason}: ${noteReasonLabel(inv.document_type, inv.reference_reason)}`
+              : null;
 
             // Services → skip (no stock)
             if (item.product_id && serviceIds.has(item.product_id)) continue;
@@ -561,7 +781,7 @@ export async function POST(request: Request) {
                   quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
                   movement_type: movementType,
                   reason: ncNotes || reason,
-                  notes: ncStockReturn ? null : (item.is_cortesia ? `Cortesia de ${item.description} (x${item.quantity})` : `Venta de ${item.description} (x${item.quantity})`),
+                  notes: stockReturned ? null : (item.is_cortesia ? `Cortesia de ${item.description} (x${item.quantity})` : `Venta de ${item.description} (x${item.quantity})`),
                   branch_id: branchId,
                   invoice_id: inserted.id,
                   created_by: ctx.userId,
@@ -606,7 +826,7 @@ export async function POST(request: Request) {
         }
 
         // Submit to SUNAT if valid doc type and API token configured
-        let sunatResult: { status: string; documentId: string | null; sunatResponseCode: string | null } | null = null;
+        let sunatResult: SunatProviderResponse | null = null;
         const sunatDocTypes = ['factura', 'boleta', 'nota_credito', 'nota_debito'];
         if (sunatDocTypes.includes(inv.document_type)) {
           try {
@@ -731,11 +951,18 @@ export async function POST(request: Request) {
                   .eq("id", inserted.id);
               }
 
+              await registerSunatAttempt(inserted.id);
               sunatResult = await provider.submit(factConfig, inserted.id, invoiceForSunat);
+              await persistSunatResult(inserted.id, sunatResult);
             }
           } catch (sunatErr) {
-            // SUNAT submission failure should not fail the sync
+            // Un fallo de envío no debe romper la sincronización: el comprobante
+            // queda 'issued' y lo recoge el auto-retry del pull.
             console.error("SUNAT submission error:", sunatErr);
+            await persistSunatError(
+              inserted.id,
+              sunatErr instanceof Error ? sunatErr.message : "Error al emitir en SUNAT",
+            );
           }
         }
 
@@ -747,6 +974,13 @@ export async function POST(request: Request) {
           sunat_status: sunatResult?.status || null,
           sunat_document_id: sunatResult?.documentId || null,
           sunat_response_code: sunatResult?.sunatResponseCode || null,
+          // Se devuelven aquí para que el POS pueda reimprimir con hash y QR
+          // válidos en cuanto termina el push, sin esperar hasta 2 minutos al
+          // siguiente pull.
+          sunat_response_desc: sunatResult?.sunatResponseDesc || null,
+          hash_code: sunatResult?.hashCode || null,
+          xml_url: sunatResult?.xmlUrl || null,
+          cdr_url: sunatResult?.cdrUrl || null,
         });
       } catch (invErr: unknown) {
         results.push({
@@ -980,6 +1214,7 @@ export async function POST(request: Request) {
           await adminClient.rpc("fn_refresh_composite_stock_for_supply", {
             p_supply_id: so.entity_id,
           });
+          touchedSupplyIds.add(so.entity_id);
         } else if (so.entity_type === "product") {
           const { data: remaining } = await adminClient.rpc("fn_decrement_stock", {
             p_product_id: so.entity_id,
@@ -1069,10 +1304,79 @@ export async function POST(request: Request) {
       }
     }
 
-    // Broadcast stock updates to all terminals
-    if (stockUpdates.length > 0) {
-      await broadcastBatchStockUpdate(ctx.tenantId, stockUpdates, ctx.userId);
+    // Sobreventa: una o más líneas salieron con más unidades de las que había.
+    // Se avisa por los tres canales que ya existen —notificación del ERP, log del
+    // servidor y respuesta al POS— sin inventar tabla nueva.
+    const oversellReport: { description: string; shortfall: number; document: string }[] = [];
+    if (oversells.length > 0) {
+      const { data: oversellSeries } = await adminClient
+        .from("invoice_series")
+        .select("id, series_code")
+        .in("id", [...new Set(oversells.map((o) => o.series_id))]);
+      const seriesCodeById = new Map(
+        (oversellSeries || []).map((s) => [s.id, s.series_code as string]),
+      );
 
+      for (const o of oversells) {
+        const document = `${seriesCodeById.get(o.series_id) ?? "?"}-${String(o.correlative).padStart(8, "0")}`;
+        oversellReport.push({ description: o.description, shortfall: o.shortfall, document });
+        console.error(
+          `[sync-push] SOBREVENTA en ${document}: "${o.description}" — pedidas ${o.requested}, faltaban ${o.shortfall}`,
+        );
+      }
+
+      try {
+        const { notifyModuleAction } = await import("@/actions/notifications");
+        await notifyModuleAction({
+          tenantId: ctx.tenantId,
+          actorId: ctx.userId,
+          moduleCodes: ["inventario.productos", "inventario.movimientos"],
+          title: "Venta sin stock suficiente",
+          message: oversellReport
+            .map((o) => `${o.document}: "${o.description}" salió con ${o.shortfall} unidades de más.`)
+            .join(" "),
+          resourceType: "product",
+          resourceId: oversells[0].entity_id,
+          type: "warning",
+        });
+      } catch (notifyErr) {
+        console.error("[sync-push] No se pudo notificar la sobreventa:", notifyErr);
+      }
+    }
+
+    // Stock final de los insumos tocados, en una sola consulta. Alimenta tanto el
+    // broadcast como la respuesta del push, para que la caja que empujó también
+    // actualice su SQLite.
+    if (touchedSupplyIds.size > 0) {
+      const { data: touchedSupplies, error: touchedErr } = await adminClient
+        .from("supplies")
+        .select("id, stock_quantity")
+        .in("id", Array.from(touchedSupplyIds));
+      if (touchedErr) {
+        console.error("[sync-push] No se pudo leer el stock de insumos tocados:", touchedErr.message);
+      }
+      for (const s of touchedSupplies || []) {
+        supplyStockUpdates.push({
+          supply_id: s.id,
+          stock_quantity: Number(s.stock_quantity),
+        });
+      }
+    }
+
+    // Broadcast stock updates to all terminals.
+    //
+    // `source` es el device_id, no el userId: dos cajas con el mismo PIN tenían
+    // el mismo userId y por tanto se descartaban el eco la una a la otra.
+    if (stockUpdates.length > 0 || supplyStockUpdates.length > 0) {
+      await broadcastBatchStockUpdate(
+        ctx.tenantId,
+        stockUpdates,
+        ctx.deviceId ?? ctx.userId,
+        supplyStockUpdates,
+      );
+    }
+
+    if (stockUpdates.length > 0) {
       // Send Web Push for low-stock products (DB trigger handles in-app notifications)
       try {
         const { notifyLowStockPush } = await import("@/actions/notifications");
@@ -1116,6 +1420,8 @@ export async function POST(request: Request) {
         stock_outputs: stockOutputResults,
         authorization_logs: authLogResults,
         updated_stocks: stockUpdates,
+        updated_supply_stocks: supplyStockUpdates,
+        oversells: oversellReport,
         synced_customers: customerResults.length,
         server_time: new Date().toISOString(),
       },

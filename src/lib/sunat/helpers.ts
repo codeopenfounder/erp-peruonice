@@ -2,43 +2,46 @@
  * Helpers compartidos entre adaptadores SUNAT.
  */
 
+import {
+  NC_DEFAULT_CODE,
+  NC_EFFECTS,
+  ND_DEFAULT_CODE,
+  ND_EFFECTS,
+  noteReasonLabel,
+} from "@/lib/sunat/note-effects";
+
+/**
+ * Catálogo 06 SUNAT — Tipo de documento de identidad.
+ * Se aceptan las dos grafías de pasaporte porque conviven en el código:
+ * `types/invoice.ts` y `lib/constants/sunat.ts` usan "passport", y el POS
+ * guardaba "pasaporte". Con una sola de ellas, el otro caso caía al "0"
+ * (sin documento) y SUNAT rechazaba la factura.
+ */
 export const SUNAT_CUSTOMER_DOC_TYPES: Record<string, string> = {
   ruc: "6",
   dni: "1",
   ce: "4",
+  passport: "7",
   pasaporte: "7",
   sin_documento: "0",
-};
-
-export const NC_REASONS: Record<string, string> = {
-  "01": "Anulación de la operación",
-  "02": "Anulación por error en el RUC",
-  "03": "Corrección por error en la descripción",
-  "04": "Descuento global",
-  "05": "Descuento por item",
-  "06": "Devolución total",
-  "07": "Devolución por item",
-  "08": "Bonificacion",
-  "09": "Disminucion en el valor",
-  "10": "Otros conceptos",
-};
-
-export const ND_REASONS: Record<string, string> = {
-  "01": "Intereses por mora",
-  "02": "Aumento en el valor",
-  "03": "Penalidades / otros cargos",
 };
 
 export function mapCustomerDocType(docType: string | null | undefined): string {
   return SUNAT_CUSTOMER_DOC_TYPES[docType || "sin_documento"] || "0";
 }
 
+/**
+ * Descripción del motivo que viaja a SUNAT como `descripcionMotivo`. Sale de la
+ * matriz de `note-effects.ts` para que la etiqueta impresa, la del PDF y la que
+ * ve SUNAT no puedan divergir: había tres copias del mapa y una de ellas ni
+ * siquiera tenía el motivo 08.
+ */
 export function getNCReason(code: string | undefined): string {
-  return NC_REASONS[code || "01"] || NC_REASONS["01"];
+  return noteReasonLabel("nota_credito", code) || NC_EFFECTS[NC_DEFAULT_CODE].label;
 }
 
 export function getNDReason(code: string | undefined): string {
-  return ND_REASONS[code || "02"] || ND_REASONS["02"];
+  return noteReasonLabel("nota_debito", code) || ND_EFFECTS[ND_DEFAULT_CODE].label;
 }
 
 export function padCorrelative(num: number, width = 8): string {

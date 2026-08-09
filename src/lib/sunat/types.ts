@@ -72,10 +72,29 @@ export interface SunatProviderResponse {
   ticket?: string | null;
 }
 
+/**
+ * Identidad del resumen SUNAT (RC de boletas, RA de bajas) sobre el que viaja
+ * una operación asíncrona.
+ *
+ * SUNAT identifica un resumen por `TIPO-AAAAMMDD-N`, donde N es un correlativo
+ * propio y creciente dentro de esa fecha de referencia. Lo genera el emisor, no
+ * el integrador: Billme se limita a respetar el que se le manda. Quien llama al
+ * adapter lo obtiene con `fn_next_summary_correlative()` — el adapter no toca la
+ * base, igual que `submit()` no persiste su resultado.
+ */
+export interface SunatSummaryRef {
+  /** Correlativo dentro de `referenceDate`, empezando en 1. */
+  correlative: number;
+  /** Fecha de emisión de los documentos informados, `YYYY-MM-DD`. */
+  referenceDate: string;
+}
+
 export interface VoidResult {
   success: boolean;
   ticket: string | null;
   error: string | null;
+  /** Identidad del resumen realmente enviado, para poder registrarlo. */
+  summary?: SunatSummaryRef | null;
 }
 
 export interface StatusResult {
@@ -93,12 +112,18 @@ export interface SunatProvider {
     invoiceId: string,
     invoice: SunatInvoiceInput,
   ): Promise<SunatProviderResponse>;
+  /**
+   * `summary` sólo lo usan los proveedores que exigen que el emisor numere el
+   * resumen (Billme). apisunat gestiona su propio correlativo de resumen y lo
+   * ignora, de ahí que sea opcional.
+   */
   void(
     config: FactConfig,
     documentType: string,
     seriesCode: string,
     correlativeNumber: number,
     reason: string,
+    summary?: SunatSummaryRef,
   ): Promise<VoidResult>;
   status(
     config: FactConfig,

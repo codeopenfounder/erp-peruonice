@@ -16,6 +16,9 @@ import {
   Monitor,
   Wifi,
   Key,
+  ShieldCheck,
+  ShieldAlert,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion } from "motion/react";
@@ -68,6 +71,7 @@ import {
   useDeleteCashRegister,
   useCreateCashRegister,
   useCreateInvoiceSeries,
+  useUpdateInvoiceSeries,
   useFactUsers,
   useCreateFactUser,
   useUpdateFactUser,
@@ -75,6 +79,8 @@ import {
   useEmployeesForFactAssignment,
 } from "@/hooks/queries/use-fact-config";
 import { useBranchesForSelect } from "@/hooks/queries/use-branches";
+import { verifyFactToken } from "@/actions/fact-config";
+import type { TokenVerification } from "@/lib/sunat/verify";
 
 // ---------------------------------------------------------------------------
 // Config Form (RUC, razon social, provider, etc.)
@@ -97,6 +103,9 @@ function FactConfigForm() {
     detraction_account: "",
   });
 
+  const [tokenCheck, setTokenCheck] = React.useState<TokenVerification | null>(null);
+  const [isVerifying, setIsVerifying] = React.useState(false);
+
   React.useEffect(() => {
     if (config) {
       setFormData({
@@ -114,6 +123,25 @@ function FactConfigForm() {
       });
     }
   }, [config]);
+
+  const handleVerifyToken = async () => {
+    setIsVerifying(true);
+    setTokenCheck(null);
+    try {
+      const res = await verifyFactToken({
+        provider: formData.provider,
+        api_token: formData.api_token,
+        ruc: formData.ruc,
+      });
+      if (res.success) {
+        setTokenCheck(res.data);
+      } else {
+        toast.error(typeof res.error === "string" ? res.error : "No se pudo verificar el token");
+      }
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   const handleSave = async () => {
     const result = await saveMutation.mutateAsync(formData);
@@ -169,7 +197,7 @@ function FactConfigForm() {
             placeholder="Av. Principal 123, Lima"
           />
         </div>
-        <div className="grid grid-cols-3 gap-3 mt-4">
+        <div className="grid grid-cols-2 gap-3 mt-4 sm:grid-cols-4">
           <div className="space-y-2">
             <Label>Departamento</Label>
             <Input
@@ -193,6 +221,21 @@ function FactConfigForm() {
               onChange={(e) => setFormData((f) => ({ ...f, distrito: e.target.value }))}
               placeholder="Miraflores"
             />
+          </div>
+          <div className="space-y-2">
+            <Label>Ubigeo</Label>
+            <Input
+              value={formData.ubigeo}
+              onChange={(e) =>
+                setFormData((f) => ({ ...f, ubigeo: e.target.value.replace(/\D/g, "") }))
+              }
+              placeholder="150130"
+              maxLength={6}
+              inputMode="numeric"
+            />
+            <p className="text-xs text-muted-foreground">
+              Código INEI de 6 dígitos del distrito fiscal. Bilme lo exige.
+            </p>
           </div>
         </div>
       </div>
@@ -229,35 +272,76 @@ function FactConfigForm() {
           </div>
           <div className="space-y-2">
             <Label>Token API</Label>
-            <Input
-              type="password"
-              value={formData.api_token}
-              onChange={(e) => setFormData((f) => ({ ...f, api_token: e.target.value }))}
-              placeholder={
-                formData.provider === "bilme"
-                  ? "Token de empresa Bilme"
-                  : "Token de acceso apisunat"
-              }
-            />
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                value={formData.api_token}
+                onChange={(e) => {
+                  setTokenCheck(null);
+                  setFormData((f) => ({ ...f, api_token: e.target.value }));
+                }}
+                placeholder={
+                  formData.provider === "bilme"
+                    ? "Token de empresa Bilme"
+                    : "Token de acceso apisunat"
+                }
+              />
+              {formData.provider === "bilme" && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleVerifyToken}
+                  disabled={isVerifying || !formData.api_token}
+                >
+                  {isVerifying ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    "Verificar"
+                  )}
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-muted-foreground">
               Cambiar de proveedor solo afecta nuevos comprobantes. Los anteriores conservan sus URLs originales.
             </p>
           </div>
         </div>
 
+        {tokenCheck && (
+          <div
+            className={`mt-4 flex items-start gap-2 rounded-lg border p-3 text-sm ${
+              !tokenCheck.valid
+                ? "border-destructive/40 bg-destructive/5 text-destructive"
+                : tokenCheck.environment === "production"
+                  ? "border-emerald-500/40 bg-emerald-500/5 text-emerald-700 dark:text-emerald-400"
+                  : "border-amber-500/40 bg-amber-500/5 text-amber-700 dark:text-amber-500"
+            }`}
+          >
+            {tokenCheck.valid ? (
+              <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+            ) : (
+              <ShieldAlert className="mt-0.5 size-4 shrink-0" />
+            )}
+            <span>{tokenCheck.message}</span>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 mt-4">
           <Switch
             checked={formData.is_production}
-            onCheckedChange={(checked) =>
-              setFormData((f) => ({ ...f, is_production: checked }))
-            }
+            onCheckedChange={(checked) => {
+              setTokenCheck(null);
+              setFormData((f) => ({ ...f, is_production: checked }));
+            }}
           />
           <div>
             <Label>Modo Produccion</Label>
             <p className="text-xs text-muted-foreground">
-              {formData.is_production
-                ? "Documentos se enviaran a SUNAT en modo produccion"
-                : "Documentos se enviaran en modo de pruebas (beta)"}
+              {formData.provider === "bilme"
+                ? "En Bilme el ambiente lo define el token: la empresa se registra en su panel como \"Desarrollo\" o \"Producción\". Este interruptor solo declara cuál esperas; al guardar se comprueba que coincida."
+                : formData.is_production
+                  ? "Documentos se enviaran a SUNAT en modo produccion"
+                  : "Documentos se enviaran en modo de pruebas (beta)"}
             </p>
           </div>
         </div>
@@ -303,10 +387,27 @@ function FactConfigForm() {
 // ---------------------------------------------------------------------------
 // Document type labels
 // ---------------------------------------------------------------------------
+// Las notas llevan serie propia para que su correlativo sea independiente del
+// del comprobante que modifican. SUNAT exige que la serie empiece con "B" si
+// modifica una boleta y con "F" si modifica una factura (Anexo N.° 3 de la
+// RS 097-2012, sust. por RS 114-2019).
 const DOCUMENT_TYPES = [
   { value: "boleta", label: "Boleta" },
   { value: "factura", label: "Factura" },
+  { value: "nota_credito_boleta", label: "Nota de crédito de boleta" },
+  { value: "nota_credito_factura", label: "Nota de crédito de factura" },
+  { value: "nota_debito_boleta", label: "Nota de débito de boleta" },
+  { value: "nota_debito_factura", label: "Nota de débito de factura" },
 ];
+
+const DOCUMENT_TYPE_SHORT: Record<string, string> = {
+  boleta: "Boleta",
+  factura: "Factura",
+  nota_credito_boleta: "NC boleta",
+  nota_credito_factura: "NC factura",
+  nota_debito_boleta: "ND boleta",
+  nota_debito_factura: "ND factura",
+};
 
 // ---------------------------------------------------------------------------
 // Create Cash Register Dialog
@@ -343,7 +444,13 @@ function CreateCashRegisterDialog({
     try {
       const result = await createMutation.mutateAsync({ name: name.trim(), branch_id: branchId });
       if (result.success) {
-        toast.success("Caja creada exitosamente");
+        // La caja nace con sus series propias (B00n/F00n). Si eso falla la caja
+        // igual existe, pero emitiría sobre la serie de otra: hay que verlo.
+        if ("warning" in result && result.warning) {
+          toast.warning(result.warning, { duration: 12000 });
+        } else {
+          toast.success("Caja creada con sus series de boleta y factura");
+        }
         onOpenChange(false);
       } else {
         const msg = typeof result.error === "string" ? result.error : "Error al crear la caja";
@@ -426,7 +533,7 @@ function CreateSeriesDialog({
   // Filter registers by selected branch
   const filteredRegisters = React.useMemo(() => {
     if (!branchId || !registers) return [];
-    return registers.filter((r: any) => r.branch_id === branchId);
+    return registers.filter((r) => r.branch_id === branchId);
   }, [branchId, registers]);
 
   React.useEffect(() => {
@@ -444,8 +551,19 @@ function CreateSeriesDialog({
   }, [branchId]);
 
   const handleSubmit = async () => {
-    if (!/^[A-Z]\d{3}$/.test(seriesCode)) {
-      toast.error("Formato de serie: letra + 3 dígitos (ej: F001, B001)");
+    // SUNAT admite 4 alfanuméricos, no sólo letra + 3 dígitos. Con la regla
+    // anterior el cliente rechazaba FC01/BD01 —las series de notas— aunque el
+    // servidor (invoiceSeriesSchema) sí las aceptaba, así que sólo existían
+    // porque las creó una migración.
+    if (!/^[A-Z][A-Z0-9]{3}$/.test(seriesCode)) {
+      toast.error("Formato de serie: letra + 3 alfanuméricos (ej: F001, B002, FC01)");
+      return;
+    }
+    const expectedPrefix = documentType.includes("factura") ? "F" : "B";
+    if (documentType && !seriesCode.startsWith(expectedPrefix)) {
+      toast.error(
+        `SUNAT exige que la serie empiece con "${expectedPrefix}" para este tipo de documento`,
+      );
       return;
     }
     if (!documentType) {
@@ -461,11 +579,13 @@ function CreateSeriesDialog({
       return;
     }
     try {
+      // branch_id no viaja: el servidor lo deriva de la caja elegida. La sede de
+      // una serie es la de su caja, y mandarla por separado era justamente lo
+      // que dejaba invoice_series.branch_id en NULL (Zod la descartaba).
       const payload: Record<string, unknown> = {
         series_code: seriesCode,
         document_type: documentType,
         cash_register_id: cashRegisterId,
-        branch_id: branchId,
       };
       const result = await createMutation.mutateAsync(payload);
       if (result.success) {
@@ -497,7 +617,9 @@ function CreateSeriesDialog({
                 maxLength={4}
                 className="font-mono"
               />
-              <p className="text-xs text-muted-foreground">Formato: letra + 3 dígitos</p>
+              <p className="text-xs text-muted-foreground">
+                Letra + 3 alfanuméricos. F para facturas y sus notas, B para boletas y las suyas.
+              </p>
             </div>
             <div className="space-y-2">
               <Label>Tipo de documento</Label>
@@ -537,7 +659,7 @@ function CreateSeriesDialog({
                 <SelectValue placeholder={branchId ? "Seleccionar caja" : "Seleccione una sede primero"} />
               </SelectTrigger>
               <SelectContent>
-                {filteredRegisters.map((r: any) => (
+                {filteredRegisters.map((r) => (
                   <SelectItem key={r.id} value={r.id}>
                     {r.name} ({r.code})
                   </SelectItem>
@@ -566,12 +688,129 @@ function CreateSeriesDialog({
 }
 
 // ---------------------------------------------------------------------------
+// Reassign Series Dialog
+// ---------------------------------------------------------------------------
+// Antes no existía: useUpdateInvoiceSeries estaba definido pero sin un solo
+// consumidor, así que mover una serie a otra caja obligaba a borrarla y
+// recrearla —lo que reinicia el correlativo a 0 y produce comprobantes con
+// números ya usados, rechazo 0402 de SUNAT—.
+function ReassignSeriesDialog({
+  series,
+  onOpenChange,
+}: {
+  series: { id: string; series_code: string; cash_register_id: string | null } | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const updateMutation = useUpdateInvoiceSeries();
+  const { data: registers } = useCashRegisters();
+  const [cashRegisterId, setCashRegisterId] = React.useState("");
+
+  React.useEffect(() => {
+    setCashRegisterId(series?.cash_register_id ?? "");
+  }, [series]);
+
+  const handleSubmit = async () => {
+    if (!series) return;
+    if (!cashRegisterId) {
+      toast.error("Debe seleccionar una caja");
+      return;
+    }
+    try {
+      const result = await updateMutation.mutateAsync({
+        id: series.id,
+        data: { cash_register_id: cashRegisterId },
+      });
+      if (result.success) {
+        toast.success(`Serie ${series.series_code} reasignada`);
+        onOpenChange(false);
+      } else {
+        const msg = typeof result.error === "string" ? result.error : "Error al reasignar la serie";
+        toast.error(msg);
+      }
+    } catch {
+      toast.error("Error al reasignar la serie");
+    }
+  };
+
+  return (
+    <Dialog open={!!series} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reasignar serie {series?.series_code}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Caja registradora</Label>
+            <Select value={cashRegisterId} onValueChange={setCashRegisterId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar caja" />
+              </SelectTrigger>
+              <SelectContent>
+                {(registers ?? []).map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name} ({r.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              El correlativo no se toca: reasignar no reinicia la numeración. La sede se
+              actualiza sola a la de la caja elegida.
+            </p>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={updateMutation.isPending}
+          >
+            Cancelar
+          </Button>
+          <Button onClick={handleSubmit} disabled={updateMutation.isPending}>
+            {updateMutation.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+            Reasignar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Series Table
 // ---------------------------------------------------------------------------
 function SeriesTab() {
   const { data: series, isLoading } = useInvoiceSeries();
+  const { data: registers } = useCashRegisters();
   const deleteMutation = useDeleteInvoiceSeries();
   const [createOpen, setCreateOpen] = React.useState(false);
+  const [reassigning, setReassigning] = React.useState<{
+    id: string;
+    series_code: string;
+    cash_register_id: string | null;
+  } | null>(null);
+
+  // Cajas activas sin serie propia de boleta o de factura.
+  //
+  // Importa porque el POS resuelve la serie con `find(tipo && caja) ||
+  // find(tipo)`: una caja sin serie propia no falla, emite silenciosamente sobre
+  // la serie de otra caja. Dos terminales compartiendo contador es exactamente
+  // cómo el número impreso en el ticket deja de ser el del comprobante real.
+  const registersWithoutSeries = React.useMemo(() => {
+    if (!registers || !series) return [];
+    return registers
+      .filter((r) => r.is_active)
+      .map((r) => {
+        const own = series.filter((s) => s.cash_register_id === r.id && s.is_active);
+        const missing = (["boleta", "factura"] as const).filter(
+          (t) => !own.some((s) => s.document_type === t),
+        );
+        return { register: r, missing: missing as string[] };
+      })
+      .filter((x) => x.missing.length > 0);
+  }, [registers, series]);
 
   const handleDelete = async (id: string) => {
     const result = await deleteMutation.mutateAsync(id);
@@ -613,6 +852,24 @@ function SeriesTab() {
 
   return (
     <div className="space-y-4">
+      {registersWithoutSeries.length > 0 && (
+        <div className="flex gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-500" />
+          <div className="space-y-1 text-sm">
+            <p className="font-medium text-amber-500">Cajas activas sin serie propia</p>
+            {registersWithoutSeries.map(({ register, missing }) => (
+              <p key={register.id} className="text-muted-foreground">
+                <span className="font-medium">{register.name}</span> ({register.code}) no tiene
+                serie de {missing.join(" ni de ")}.
+              </p>
+            ))}
+            <p className="text-muted-foreground">
+              Mientras falte, esa caja emite sobre la serie de otra: comparten correlativo y el
+              número impreso en el ticket puede no ser el del comprobante real.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="flex justify-end">
         <Button size="sm" onClick={() => setCreateOpen(true)}>
           <Plus className="mr-2 size-4" />
@@ -638,7 +895,7 @@ function SeriesTab() {
                 <TableCell className="font-mono text-sm">{s.series_code}</TableCell>
                 <TableCell>
                   <Badge variant="outline" className="text-[10px]">
-                    {s.document_type === "factura" ? "Factura" : "Boleta"}
+                    {DOCUMENT_TYPE_SHORT[s.document_type] ?? s.document_type}
                   </Badge>
                 </TableCell>
                 <TableCell className="tabular-nums">{s.current_correlative}</TableCell>
@@ -669,6 +926,18 @@ function SeriesTab() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem
+                        onClick={() =>
+                          setReassigning({
+                            id: s.id,
+                            series_code: s.series_code,
+                            cash_register_id: s.cash_register_id ?? null,
+                          })
+                        }
+                      >
+                        <Pencil className="mr-2 size-4" />
+                        Reasignar caja
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
                         onClick={() => handleDelete(s.id)}
                         className="text-destructive"
                       >
@@ -684,6 +953,10 @@ function SeriesTab() {
       </Table>
     </div>
       <CreateSeriesDialog open={createOpen} onOpenChange={setCreateOpen} />
+      <ReassignSeriesDialog
+        series={reassigning}
+        onOpenChange={(open) => !open && setReassigning(null)}
+      />
     </div>
   );
 }

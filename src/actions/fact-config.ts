@@ -19,6 +19,7 @@ import type {
 } from "@/types/invoice";
 import { notifyModuleAction } from "@/actions/notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { verifyProviderToken } from "@/lib/sunat/verify";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,6 +41,58 @@ async function getTenantId() {
   return { supabase, tenantId: profile.tenant_id, userId: user.id };
 }
 
+/**
+ * Códigos de serie que le corresponden a una caja por su código.
+ * CAJA-02 -> { boleta: "B002", factura: "F002" }.
+ *
+ * El primer carácter no es decorativo: el Anexo N.° 3 de la RS 097-2012 (sust.
+ * por la RS 114-2019) exige "F" para facturas y "B" para boletas, y SUNAT
+ * rechaza con 2345 si no coincide.
+ *
+ * Devuelve null cuando el código de la caja no encaja con 'CAJA-NN': antes que
+ * inventar un código ambiguo, se prefiere dejar la caja sin serie propia y que
+ * quien la administre la cree a mano.
+ */
+function seriesCodesForRegister(registerCode: string): { boleta: string; factura: string } | null {
+  const match = registerCode.match(/^CAJA-(\d+)$/);
+  if (!match) return null;
+  const suffix = match[1].padStart(3, "0");
+  if (suffix.length !== 3) return null;
+  return { boleta: `B${suffix}`, factura: `F${suffix}` };
+}
+
+const SERIES_DOCUMENT_LABELS: Record<string, string> = {
+  boleta: "boleta",
+  factura: "factura",
+  nota_credito_boleta: "nota de crédito de boleta",
+  nota_credito_factura: "nota de crédito de factura",
+  nota_debito_boleta: "nota de débito de boleta",
+  nota_debito_factura: "nota de débito de factura",
+};
+
+/**
+ * Traduce los errores de restricción de `invoice_series` a algo que un
+ * administrador pueda entender y accionar.
+ *
+ * Sin esto el usuario veía literalmente
+ * `duplicate key value violates unique constraint "idx_invoice_series_register_type_active"`,
+ * que no dice ni qué caja ni qué hacer.
+ */
+function describeSeriesError(message: string, documentType?: string): string {
+  const tipo = (documentType && SERIES_DOCUMENT_LABELS[documentType]) || "ese tipo de documento";
+
+  if (message.includes("idx_invoice_series_register_type_active")) {
+    return `Esa caja ya tiene una serie activa de ${tipo}. Una caja solo puede tener una, porque comparten el correlativo. Elimine o desactive la existente antes de asignar otra.`;
+  }
+  if (message.includes("idx_invoice_series_tenant_code")) {
+    return "Ya existe una serie con ese código. Los códigos de serie son únicos en toda la empresa.";
+  }
+  if (message.includes("invoice_series_document_type_check")) {
+    return "Tipo de documento no válido para una serie.";
+  }
+  return message;
+}
+
 // ---------------------------------------------------------------------------
 // Fact Config (no approval needed — direct save)
 // ---------------------------------------------------------------------------
@@ -54,6 +107,25 @@ export async function getFactConfig(): Promise<FactConfig | null> {
   return data as FactConfig | null;
 }
 
+/**
+ * Comprueba el token contra el proveedor y detecta si es de desarrollo o de
+ * producción. No emite ningún comprobante.
+ */
+export async function verifyFactToken(input: {
+  provider: string;
+  api_token: string;
+  ruc: string;
+}) {
+  try {
+    await requirePermission("config.poi_fact", "edit");
+  } catch (e) {
+    return { success: false as const, error: (e as Error).message };
+  }
+
+  const result = await verifyProviderToken(input.provider, input.api_token, input.ruc);
+  return { success: true as const, data: result };
+}
+
 export async function saveFactConfig(input: unknown) {
   const parsed = factConfigSchema.safeParse(input);
   if (!parsed.success) {
@@ -65,6 +137,30 @@ export async function saveFactConfig(input: unknown) {
     ({ supabase, tenantId } = await requirePermission("config.poi_fact", "edit"));
   } catch (e) {
     return { success: false as const, error: (e as Error).message };
+  }
+
+  // Guardar un token de desarrollo con "Modo Producción" activo (o al revés)
+  // deja al sistema emitiendo contra el ambiente equivocado sin ninguna señal:
+  // el proveedor responde éxito igual. Se comprueba antes de escribir.
+  if (parsed.data.provider === "bilme" && parsed.data.api_token) {
+    const check = await verifyProviderToken(
+      parsed.data.provider,
+      parsed.data.api_token,
+      parsed.data.ruc,
+    );
+    if (!check.valid) {
+      return { success: false as const, error: check.message };
+    }
+    const expected = parsed.data.is_production ? "production" : "development";
+    if (check.environment && check.environment !== expected) {
+      return {
+        success: false as const,
+        error:
+          check.environment === "development"
+            ? "El token es de una empresa de DESARROLLO de Bilme, pero tienes activado el Modo Producción. Los comprobantes no tendrían validez fiscal. Desactiva el Modo Producción o pega el token de producción."
+            : "El token es de una empresa de PRODUCCIÓN de Bilme, pero el Modo Producción está desactivado. Actívalo para reflejar que se emitirá con validez fiscal.",
+      };
+    }
   }
 
   const { data: existing } = await supabase
@@ -155,18 +251,36 @@ export async function createInvoiceSeries(input: unknown) {
     }
   }
 
+  // La sede de una serie no es un dato independiente: es la de su caja. Antes se
+  // pedía por separado en el diálogo y Zod la descartaba por no estar declarada
+  // en el schema, así que invoice_series.branch_id quedaba siempre en NULL.
+  // Derivarla aquí la mantiene consistente por construcción.
+  const { data: register } = await supabase
+    .from("cash_registers")
+    .select("branch_id")
+    .eq("id", cash_register_id)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (!register) {
+    return { success: false as const, error: "La caja seleccionada no existe en este tenant" };
+  }
+
   const { data: series, error } = await supabase
     .from("invoice_series")
     .insert({
       ...rest,
       tenant_id: tenantId,
       cash_register_id: cash_register_id || null,
+      branch_id: register.branch_id,
       is_active: true,
     })
     .select("id")
     .single();
 
-  if (error) return { success: false as const, error: error.message };
+  if (error) {
+    return { success: false as const, error: describeSeriesError(error.message, parsed.data.document_type) };
+  }
 
   await notifyModuleAction({
     tenantId,
@@ -199,12 +313,30 @@ export async function updateInvoiceSeries(id: string, input: unknown) {
 
   if (!existing) return { success: false as const, error: "Serie no encontrada" };
 
+  const { data: register } = await supabase
+    .from("cash_registers")
+    .select("branch_id")
+    .eq("id", parsed.data.cash_register_id)
+    .eq("tenant_id", tenantId)
+    .single();
+
+  if (!register) {
+    return { success: false as const, error: "La caja seleccionada no existe en este tenant" };
+  }
+
   const { error: updateError } = await supabase
     .from("invoice_series")
-    .update({ cash_register_id: parsed.data.cash_register_id })
+    .update({
+      cash_register_id: parsed.data.cash_register_id,
+      // La sede acompaña a la caja: reasignar una serie a otra caja sin mover la
+      // sede dejaría los dos campos contradiciéndose.
+      branch_id: register.branch_id,
+    })
     .eq("id", id);
 
-  if (updateError) return { success: false as const, error: updateError.message };
+  if (updateError) {
+    return { success: false as const, error: describeSeriesError(updateError.message, existing.document_type) };
+  }
 
   await notifyModuleAction({
     tenantId,
@@ -315,19 +447,64 @@ export async function createCashRegister(input: unknown) {
 
   if (error) return { success: false as const, error: error.message };
 
+  // Series propias para la caja recién creada.
+  //
+  // Sin esto, el POS resuelve la serie con `find(tipo && caja) || find(tipo)` y
+  // una caja sin serie propia emite sobre la serie de otra caja: dos terminales
+  // compartiendo contador, y el número impreso en el ticket puede dejar de ser
+  // el del comprobante real. Era la causa raíz de que CAJA-02 fuera una bomba de
+  // relojería aunque no hubiera emitido nada todavía.
+  //
+  // Si la creación de series falla NO se revierte la caja: una caja sin serie
+  // propia sigue siendo utilizable (cae al fallback, que es el comportamiento de
+  // siempre), mientras que abortar dejaría al usuario sin poder crear cajas por
+  // un choque de nombres de serie. Se avisa y se sigue.
+  let seriesWarning: string | undefined;
+  const codes = seriesCodesForRegister(register!.code);
+  if (!codes) {
+    seriesWarning = `No se pudieron derivar series automáticas del código "${register!.code}". Créelas manualmente en la pestaña Series.`;
+  } else {
+    const { error: seriesError } = await supabase.from("invoice_series").insert([
+      {
+        tenant_id: tenantId,
+        series_code: codes.boleta,
+        document_type: "boleta",
+        current_correlative: 0,
+        branch_id: parsed.data.branch_id || null,
+        cash_register_id: register!.id,
+        is_active: true,
+      },
+      {
+        tenant_id: tenantId,
+        series_code: codes.factura,
+        document_type: "factura",
+        current_correlative: 0,
+        branch_id: parsed.data.branch_id || null,
+        cash_register_id: register!.id,
+        is_active: true,
+      },
+    ]);
+
+    if (seriesError) {
+      seriesWarning = `La caja se creó, pero no se pudieron crear sus series ${codes.boleta}/${codes.factura}: ${seriesError.message}. Créelas en la pestaña Series antes de usarla.`;
+    }
+  }
+
   await notifyModuleAction({
     tenantId,
     actorId: userId,
     moduleCodes: ["config.poi_fact"],
     title: "Nueva caja registradora",
-    message: `Caja "${parsed.data.name}" creada`,
+    message: seriesWarning
+      ? `Caja "${parsed.data.name}" creada SIN series propias`
+      : `Caja "${parsed.data.name}" creada con sus series ${codes!.boleta} y ${codes!.factura}`,
     resourceType: "cash_register",
     resourceId: register!.id,
-    type: "info",
+    type: seriesWarning ? "warning" : "info",
   });
 
   revalidatePath("/config/poi-fact");
-  return { success: true as const };
+  return { success: true as const, warning: seriesWarning };
 }
 
 export async function updateCashRegister(id: string, input: unknown) {

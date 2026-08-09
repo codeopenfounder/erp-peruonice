@@ -5,6 +5,19 @@
 
 /** Catálogo 01 SUNAT — Tipo de comprobante */
 export function mapCodigoTipoDocumento(documentType: string): string {
+  const code = tryMapCodigoTipoDocumento(documentType);
+  if (!code) {
+    throw new Error(`Tipo de documento no soportado: ${documentType}`);
+  }
+  return code;
+}
+
+/**
+ * Variante que no lanza. `invoices.document_type` admite además 'ticket', que no
+ * es un comprobante electrónico: quien reciba null debe cortar con un error
+ * legible en vez de reventar a mitad de la emisión.
+ */
+export function tryMapCodigoTipoDocumento(documentType: string): string | null {
   switch (documentType) {
     case "factura":
       return "01";
@@ -15,7 +28,7 @@ export function mapCodigoTipoDocumento(documentType: string): string {
     case "nota_debito":
       return "08";
     default:
-      throw new Error(`Tipo de documento no soportado: ${documentType}`);
+      return null;
   }
 }
 
@@ -36,11 +49,17 @@ export function mapCodigoAfectacionIgv(taxType: string): string {
   }
 }
 
-/** Catálogo 05 SUNAT — Tipo de tributo */
+/**
+ * Catálogo 05 SUNAT — Tipo de tributo.
+ * Bilme espera el código internacional en `codigoInterTributo` (no
+ * `codigoInternacional`) y exige además `idCategoria`, que es la columna
+ * "Categoría" del mismo catálogo.
+ */
 export interface TributoMapping {
   codigoTributo: string;
   nombreTributo: string;
-  codigoInternacional: string;
+  codigoInterTributo: string;
+  idCategoria: string;
 }
 
 export function mapCodigoTributo(taxType: string): TributoMapping {
@@ -49,27 +68,31 @@ export function mapCodigoTributo(taxType: string): TributoMapping {
       return {
         codigoTributo: "9997",
         nombreTributo: "EXO",
-        codigoInternacional: "VAT",
+        codigoInterTributo: "VAT",
+        idCategoria: "E",
       };
     case "inafecto":
       return {
         codigoTributo: "9998",
         nombreTributo: "INA",
-        codigoInternacional: "FRE",
+        codigoInterTributo: "FRE",
+        idCategoria: "O",
       };
     case "gratuita":
     case "gratuito":
       return {
         codigoTributo: "9996",
         nombreTributo: "GRA",
-        codigoInternacional: "FRE",
+        codigoInterTributo: "FRE",
+        idCategoria: "Z",
       };
     case "gravado":
     default:
       return {
         codigoTributo: "1000",
         nombreTributo: "IGV",
-        codigoInternacional: "VAT",
+        codigoInterTributo: "VAT",
+        idCategoria: "S",
       };
   }
 }
@@ -138,11 +161,13 @@ export function mapCodigoUnidad(unit: string | null | undefined): string {
   return "NIU";
 }
 
-/** Catálogo 09 SUNAT — Tipos de motivo de baja */
-export function mapMotivoBaja(documentType: string, reason?: string): string {
-  if (reason) return reason;
-  return "Anulación de la operación";
-}
+/**
+ * Catálogo 25 SUNAT — Código de producto (UNSPSC, 8 dígitos).
+ * Verificado contra la API: Bilme NO valida este código (aceptó `99999999`),
+ * y sus propios ejemplos usan el mismo valor para mochilas, libros y manzanas.
+ * Se envía un genérico hasta que el catálogo de productos lo modele.
+ */
+export const DEFAULT_CODIGO_CLASIFICACION = "10191509";
 
 /** Catálogo 16 SUNAT — Tipo de precio (01 = Precio unitario, 02 = Valor referencial gratuito) */
 export function mapCodigoTipoPrecio(taxType: string): string {

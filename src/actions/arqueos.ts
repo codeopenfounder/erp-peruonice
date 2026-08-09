@@ -589,37 +589,52 @@ export async function createCierreArqueo(params: {
     cashierName = profile?.full_name || null;
   }
 
-  const insertResult = await adminClient.from("cash_register_arqueos").insert({
-    tenant_id: params.tenantId,
-    cash_register_id: params.cashRegisterId,
-    opening_id: params.openingId,
-    branch_id: reg?.branch_id || null,
-    type: "cierre",
-    opening_amount: params.openingAmount,
-    total_sales_cash: totalSalesCash,
-    total_sales_card: totalSalesCard,
-    total_sales_transfer: totalSalesTransfer,
-    total_income: totalIncome,
-    total_expense: totalExpense,
-    total_refunds: totalRefunds,
-    total_petty_cash: totalPettyCash,
-    sale_count: saleCount,
-    movement_count: movementCount,
-    expected_amount: params.expectedAmount,
-    counted_amount: params.closingAmount,
-    difference: params.difference,
-    denomination_counts: params.denominationCounts || {},
-    cashier_id: cashierId,
-    cashier_name: cashierName,
-    supervisor_id: params.closedBy,
-    supervisor_name: params.closedByName,
-    created_by: params.closedBy || cashierId,
-    notes: params.notes,
-    period_start: opening?.opened_at || null,
-    period_end: new Date().toISOString(),
-  });
+  // Upsert, no insert: se llama fire-and-forget desde /api/fact/heartbeat y el
+  // POS reenvía el heartbeat de cierre ante cualquier fallo de red. Con un
+  // insert plano, cada reenvío creaba OTRO arqueo de cierre para la misma
+  // apertura.
+  //
+  // El conflicto se resuelve sobre `cierre_opening_id`, una columna generada que
+  // vale `opening_id` sólo en los arqueos de cierre y NULL en los de sorpresa
+  // (migración 00037). Un índice parcial no serviría: PostgREST no sabe emitir
+  // el predicado que Postgres exige para inferirlo, y los arqueos sorpresa sí
+  // pueden repetirse dentro de una misma apertura.
+  const upsertResult = await adminClient
+    .from("cash_register_arqueos")
+    .upsert(
+      {
+        tenant_id: params.tenantId,
+        cash_register_id: params.cashRegisterId,
+        opening_id: params.openingId,
+        branch_id: reg?.branch_id || null,
+        type: "cierre",
+        opening_amount: params.openingAmount,
+        total_sales_cash: totalSalesCash,
+        total_sales_card: totalSalesCard,
+        total_sales_transfer: totalSalesTransfer,
+        total_income: totalIncome,
+        total_expense: totalExpense,
+        total_refunds: totalRefunds,
+        total_petty_cash: totalPettyCash,
+        sale_count: saleCount,
+        movement_count: movementCount,
+        expected_amount: params.expectedAmount,
+        counted_amount: params.closingAmount,
+        difference: params.difference,
+        denomination_counts: params.denominationCounts || {},
+        cashier_id: cashierId,
+        cashier_name: cashierName,
+        supervisor_id: params.closedBy,
+        supervisor_name: params.closedByName,
+        created_by: params.closedBy || cashierId,
+        notes: params.notes,
+        period_start: opening?.opened_at || null,
+        period_end: new Date().toISOString(),
+      },
+      { onConflict: "cierre_opening_id" },
+    );
 
-  if (insertResult.error) {
-    console.error("[createCierreArqueo] Insert failed:", insertResult.error.message);
+  if (upsertResult.error) {
+    console.error("[createCierreArqueo] Upsert failed:", upsertResult.error.message);
   }
 }

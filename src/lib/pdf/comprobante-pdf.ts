@@ -327,6 +327,7 @@ export async function generateComprobantePdf(
     issueDateIso: comprobante.issueDate,
     customerDocType: customer?.docType ?? null,
     customerDocNumber: customer?.docNumber ?? null,
+    hashCode: comprobante.hashCode ?? null,
   });
 
   try {

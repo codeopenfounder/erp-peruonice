@@ -13,6 +13,7 @@ import type {
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { broadcastBatchStockUpdate, ERP_SOURCE } from "@/lib/stock-broadcast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -476,22 +477,27 @@ export async function createAudit(input: unknown) {
   }
 
   // Apply stock adjustments for items with differences (atomic via RPC)
+  const auditProductUpdates: { product_id: string; stock_quantity: number }[] = [];
+  const auditSupplyUpdates: { supply_id: string; stock_quantity: number }[] = [];
+
   for (const item of items) {
     const diff = Number(item.difference);
     if (diff === 0) continue;
 
     const absDiff = Math.abs(diff);
     if (item.entity_type === "supply") {
-      if (diff < 0) {
-        await supabase.rpc("fn_decrement_supply_stock", { p_supply_id: item.entity_id, p_quantity: absDiff });
-      } else {
-        await supabase.rpc("fn_increment_supply_stock", { p_supply_id: item.entity_id, p_quantity: absDiff });
+      const { data: remaining } = diff < 0
+        ? await supabase.rpc("fn_decrement_supply_stock", { p_supply_id: item.entity_id, p_quantity: absDiff })
+        : await supabase.rpc("fn_increment_supply_stock", { p_supply_id: item.entity_id, p_quantity: absDiff });
+      if (typeof remaining === "number") {
+        auditSupplyUpdates.push({ supply_id: item.entity_id, stock_quantity: remaining });
       }
     } else {
-      if (diff < 0) {
-        await supabase.rpc("fn_decrement_stock", { p_product_id: item.entity_id, p_quantity: absDiff });
-      } else {
-        await supabase.rpc("fn_increment_stock", { p_product_id: item.entity_id, p_quantity: absDiff });
+      const { data: remaining } = diff < 0
+        ? await supabase.rpc("fn_decrement_stock", { p_product_id: item.entity_id, p_quantity: absDiff })
+        : await supabase.rpc("fn_increment_stock", { p_product_id: item.entity_id, p_quantity: absDiff });
+      if (typeof remaining === "number") {
+        auditProductUpdates.push({ product_id: item.entity_id, stock_quantity: remaining });
       }
     }
 
@@ -519,6 +525,16 @@ export async function createAudit(input: unknown) {
     resourceId: audit.id,
     type: "info",
   }).catch((e) => console.error("[createAudit] notify error:", e));
+
+  // Una auditoría es el ajuste de stock más grande que existe y no llegaba a
+  // ninguna caja hasta el pull siguiente: hasta 2 minutos vendiendo contra el
+  // stock viejo. Se emite en un solo lote.
+  void broadcastBatchStockUpdate(
+    tenantId,
+    auditProductUpdates,
+    ERP_SOURCE,
+    auditSupplyUpdates,
+  ).catch((e) => console.error("[createAudit] broadcast error:", e));
 
   revalidatePath("/inventario/auditoria");
   return {

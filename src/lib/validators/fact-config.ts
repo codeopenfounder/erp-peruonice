@@ -21,18 +21,49 @@ export const factConfigSchema = z.object({
 
 export type FactConfigSchemaType = z.infer<typeof factConfigSchema>;
 
-export const invoiceSeriesSchema = z.object({
-  series_code: z
-    .string()
-    .min(4, "Código de serie requerido")
-    .max(4, "Máximo 4 caracteres")
-    .regex(/^[A-Z]\d{3}$/, "Formato: letra + 3 dígitos (ej: F001, B001)"),
-  document_type: z.enum([
-    "factura",
-    "boleta",
-  ]),
-  cash_register_id: z.string().uuid("Caja requerida"),
-});
+/**
+ * Primer carácter de la serie según el Anexo N.° 3 de la RS 097-2012/SUNAT
+ * (sustituido por la RS 114-2019): "F" para lo que factura o modifica facturas,
+ * "B" para boletas y sus notas. Incumplirlo produce el rechazo 2345
+ * ("La serie no corresponde al tipo de comprobante").
+ */
+const SERIES_PREFIX_BY_DOCUMENT: Record<string, "F" | "B"> = {
+  factura: "F",
+  nota_credito_factura: "F",
+  nota_debito_factura: "F",
+  boleta: "B",
+  nota_credito_boleta: "B",
+  nota_debito_boleta: "B",
+};
+
+export const invoiceSeriesSchema = z
+  .object({
+    series_code: z
+      .string()
+      .length(4, "La serie debe tener exactamente 4 caracteres")
+      // SUNAT admite 4 alfanuméricos, no solo letra + 3 dígitos: las series de
+      // notas de la convención habitual (FC01, BD01) no son numéricas.
+      .regex(/^[A-Z][A-Z0-9]{3}$/, "Formato: letra + 3 alfanuméricos (ej: F001, FC01)"),
+    document_type: z.enum([
+      "factura",
+      "boleta",
+      "nota_credito_factura",
+      "nota_credito_boleta",
+      "nota_debito_factura",
+      "nota_debito_boleta",
+    ]),
+    cash_register_id: z.string().uuid("Caja requerida"),
+  })
+  .superRefine((v, ctx) => {
+    const expected = SERIES_PREFIX_BY_DOCUMENT[v.document_type];
+    if (expected && !v.series_code.startsWith(expected)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["series_code"],
+        message: `SUNAT exige que la serie empiece con "${expected}" para este tipo de documento`,
+      });
+    }
+  });
 
 export type InvoiceSeriesSchemaType = z.infer<typeof invoiceSeriesSchema>;
 

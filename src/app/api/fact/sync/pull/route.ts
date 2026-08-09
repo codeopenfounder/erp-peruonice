@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { getSunatProvider } from "@/lib/sunat/factory";
+import {
+  MAX_SUNAT_ATTEMPTS,
+  persistSunatResult,
+  registerSunatAttempt,
+} from "@/lib/sunat/persist";
 
 /**
  * Auto-retry SUNAT submission for invoices stuck in 'issued' status.
@@ -10,12 +15,15 @@ import { getSunatProvider } from "@/lib/sunat/factory";
 async function autoRetrySunat(tenantId: string) {
   const adminClient = createAdminClient();
 
-  // Find invoices in 'issued' status (synced but never sent to SUNAT)
+  // Find invoices in 'issued' status (synced but never sent to SUNAT).
+  // El tope de intentos evita que un comprobante que SUNAT rechaza de forma
+  // permanente se reenvíe en cada pull para siempre (~720 veces al día).
   const { data: stuckInvoices } = await adminClient
     .from("invoices")
-    .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id")
+    .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, has_detraction, detraction_code, detraction_percentage, detraction_amount, detraction_payment_method")
     .eq("tenant_id", tenantId)
     .eq("status", "issued")
+    .lt("sunat_attempts", MAX_SUNAT_ATTEMPTS)
     .order("created_at", { ascending: true })
     .limit(5); // Process max 5 per pull to avoid timeout
 
@@ -24,7 +32,7 @@ async function autoRetrySunat(tenantId: string) {
   // Get fact config
   const { data: factConfigRaw } = await adminClient
     .from("fact_config")
-    .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider")
+    .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
     .eq("tenant_id", tenantId)
     .eq("is_active", true)
     .single();
@@ -146,9 +154,19 @@ async function autoRetrySunat(tenantId: string) {
         reference_document_type: refDocType,
         reference_reason: inv.reference_reason || undefined,
         created_at: inv.created_at,
+        // Sin esto, una factura con SPOT reenviada por el auto-retry se emitía
+        // sin detracción, es decir: un comprobante distinto del original.
+        has_detraction: inv.has_detraction || false,
+        detraction_code: inv.detraction_code || null,
+        detraction_percentage: inv.detraction_percentage ?? null,
+        detraction_amount: inv.detraction_amount ?? null,
+        detraction_payment_method: inv.detraction_payment_method || null,
+        detraction_account: factConfigRaw.detraction_account || null,
       };
 
-      await provider.submit(factConfig, inv.id, invoiceForSunat);
+      await registerSunatAttempt(inv.id);
+      const result = await provider.submit(factConfig, inv.id, invoiceForSunat);
+      await persistSunatResult(inv.id, result);
     } catch (err) {
       console.error(`[auto-retry] SUNAT retry failed for ${inv.id}:`, err);
     }
@@ -222,14 +240,18 @@ export async function POST(request: Request) {
         // Invoice series
         adminClient
           .from("invoice_series")
-          .select("id, series_code, document_type, current_correlative, cash_register_id")
+          .select("id, series_code, document_type, current_correlative, branch_id, cash_register_id")
           .eq("tenant_id", ctx.tenantId)
           .eq("is_active", true),
 
         // Cash registers
+        // branch_id es obligatorio aquí: sync-engine.ts lo usa para resolver la
+        // sede de la caja actual y escribir stored_config.branch_id/branch_name.
+        // Al no venir, ese `find` nunca encontraba nada y la sede sólo existía en
+        // memoria mientras durase la sesión.
         adminClient
           .from("cash_registers")
-          .select("id, name, code, is_active, petty_cash_amount")
+          .select("id, name, code, is_active, branch_id, petty_cash_amount")
           .eq("tenant_id", ctx.tenantId)
           .eq("is_active", true),
 
@@ -468,10 +490,14 @@ export async function POST(request: Request) {
             .gt("updated_at", sinceDate),
 
           // Series (always include, cheap)
+          // Se filtran las inactivas igual que en el pull full: sin el filtro, una
+          // serie desactivada en el ERP seguía llegando al POS y quedaba
+          // seleccionable, porque el upsert de Rust ni siquiera lee is_active.
           adminClient
             .from("invoice_series")
-            .select("id, series_code, document_type, current_correlative, cash_register_id, is_active")
-            .eq("tenant_id", ctx.tenantId),
+            .select("id, series_code, document_type, current_correlative, branch_id, cash_register_id, is_active")
+            .eq("tenant_id", ctx.tenantId)
+            .eq("is_active", true),
 
           // Active promotions (always include — filters are nested M2M data that must stay fresh)
           adminClient
@@ -575,7 +601,17 @@ export async function POST(request: Request) {
       // Cash registers with monthly petty cash (always include for live balance)
       const { data: incrRegisters } = await adminClient
         .from("cash_registers")
-        .select("id, name, code, is_active, petty_cash_amount")
+        .select("id, name, code, is_active, branch_id, petty_cash_amount")
+        .eq("tenant_id", ctx.tenantId)
+        .eq("is_active", true);
+
+      // Branches: el pull incremental no las devolvía, así que el bloque de
+      // sync-engine.ts que escribe stored_config.branch_id/branch_name ni
+      // siquiera entraba (exige branches Y cash_registers). Son 4 columnas de una
+      // tabla con una fila: el coste es irrelevante frente a tener la sede.
+      const { data: incrBranches } = await adminClient
+        .from("branches")
+        .select("id, name, code, type")
         .eq("tenant_id", ctx.tenantId)
         .eq("is_active", true);
 
@@ -676,6 +712,7 @@ export async function POST(request: Request) {
           promotions: promotionsRes.data || [],
           promotion_combo_items: incrComboItems || [],
           cash_registers: incrRegisters || [],
+          branches: incrBranches || [],
           category_assignments: categoryAssignments,
           tag_assignments: tagAssignments,
           supplies: incrSupplies || [],

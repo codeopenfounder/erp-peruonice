@@ -9,9 +9,13 @@ segunda tanda, tras el corte del proveedor de facturación a **Billme producció
 |---|---|
 | Migración `00041` | ✅ aplicada y verificada en producción |
 | Proveedor SUNAT | ✅ `fact_config.provider = bilme`, token de producción verificado |
-| `poi-erp` | ✅ desplegado (PR #2) · ⏳ la tanda del corte a Billme sin desplegar |
-| `poi-fact` **1.0.4** | ✅ compilado, publicado y enlazado en `config/poi-fact` · ⏳ `main` del repo sin empujar |
-| `poi-lector` | ✅ iconos del PWA arreglados · ⏳ sin commitear |
+| `poi-erp` | ✅ commiteado y empujado · ⏳ **PR #4 abierto, sin mergear ni desplegar** |
+| `poi-fact` **1.0.4** | ✅ compilado, publicado, enlazado y `main` empujado |
+| `poi-lector` | ✅ iconos del PWA arreglados y `main` empujado |
+
+Esta tanda **no toca la base de datos**: ni migración ni columna nueva. El único
+cambio de datos ya está hecho (`fact_config.provider` → `bilme`), así que el PR #4
+se puede desplegar en cualquier orden.
 
 **Lo único que bloquea la emisión: la Clave SOL** (punto 0). Todo lo demás de la
 cadena está verificado — certificado, payload, firma, usuario y permisos.
@@ -286,20 +290,44 @@ indexable durante semanas.
 `.git/config` en claro y aparece en cualquier `git remote -v`, en cualquier captura
 de pantalla y en cualquier log que ejecute ese comando.
 
-Runbook:
+**No es el arreglo barato que parecía. Es la única credencial que puede empujar
+nada.** Comprobado el 2026-08-09 contra la API de GitHub:
+
+| Credencial | `erp-peruonice` | `poi-fact` | `lector-peruonice` |
+|---|---|---|---|
+| Cuentas de `gh` (`jhenryorellana-eng`, `ing-mauricio-sb`) | lectura (`push: false`) | sin acceso (404) | lectura, push 403 |
+| **PAT del remoto de `poi-erp`** | ✅ push | ✅ push | ✅ push |
+
+Es decir: quitar el token de la URL sin más **deja los tres repositorios sin
+forma de empujar**, y `gh auth login` no lo resuelve porque esas cuentas no son
+colaboradoras con escritura de la organización `codeopenfounder`.
+
+Trampa relacionada: el gestor de credenciales de Windows **gana** a un
+`-c credential.helper=…` añadido en la línea de órdenes, y devuelve la credencial
+de la cuenta equivocada. Con `poi-fact` eso produce un *"Repository not found"*
+que parece que el repositorio no existe cuando lo que pasa es que la credencial no
+tiene acceso. Para usar el PAT sin escribirlo en ningún sitio hay que **resetear la
+lista** primero:
 
 ```bash
-# 1. Quitar el token de la URL
-git -C poi-erp remote set-url origin https://github.com/codeopenfounder/erp-peruonice.git
-
-# 2. Autenticar de forma persistente sin embeber nada
-gh auth login          # o el credential helper de Windows
-
-# 3. Rotar el PAT en GitHub → Settings → Developer settings → Tokens
-#    (el que estaba en la URL hay que considerarlo comprometido)
+PAT=$(git -C poi-erp remote get-url origin | sed -n 's|https://\([^@]*\)@.*|\1|p')
+HELPER="!f() { echo username=x-access-token; echo password=$PAT; }; f"
+git -C <repo> -c credential.helper= -c credential.helper="$HELPER" push origin main
 ```
 
-No toca código. Es el hallazgo de seguridad más barato de arreglar de esta lista.
+Runbook de verdad, en este orden:
+
+1. **Crear un PAT nuevo** con `repo` sobre la organización `codeopenfounder`.
+2. **Guardarlo en el gestor de credenciales de Windows**, no en la URL:
+   `git credential approve` o `cmdkey`. Comprobar que `git push --dry-run`
+   funciona en los tres repositorios.
+3. Sólo entonces, quitar el token de la URL:
+   `git -C poi-erp remote set-url origin https://github.com/codeopenfounder/erp-peruonice.git`
+4. **Revocar el PAT viejo** en GitHub → Settings → Developer settings → Tokens.
+   Hay que considerarlo comprometido: ha aparecido en cada `git remote -v`.
+
+Alternativa más limpia si hay varias personas: dar acceso de escritura a las
+cuentas ya autenticadas en `gh` y prescindir del PAT.
 
 ---
 
@@ -372,10 +400,12 @@ generado en su cabecera.
   gerente, dar una cortesía y una salida operativa, y anular un comprobante con un
   producto compuesto comprobando en la SQLite que volvieron los insumos de la receta y
   que hay un `cash_register_movements` tipo `refund` con `synced = 1`.
-- **`kronos-fact`: la rama está empujada pero `main` no.** El código está a salvo en
-  GitHub (`feat/void-cycle-and-offline-auth`); sólo falta mover el puntero, por PR.
-  El motivo por el que `git push origin main` falla desde la terminal está en el
-  punto 5: el PAT vive embebido en el remoto de un solo repo.
+- **`kronos-fact`: `main` empujado.** ✅ el 2026-08-09, con la 1.0.4. Lo que lo tenía
+  bloqueado no era olvido sino credenciales, y el diagnóstico estaba mal: `git push`
+  respondía *"Repository not found"*, que parecía que el repositorio no existiera. Lo
+  que pasaba es que el gestor de credenciales de Windows imponía la cuenta
+  equivocada. Con la lista de helpers reseteada, el PAT del remoto de `poi-erp` sí
+  alcanza los tres repositorios (ver punto 5).
 - **`poi-lector`: el PWA no era instalable.** ✅ arreglado el 2026-08-09. El
   manifiesto declaraba `poi-logo.png` como 192×192, 512×512 y `maskable` a la vez, y
   ese fichero mide **72×60 px**. Chrome exige un icono de 192 px real para ofrecer la

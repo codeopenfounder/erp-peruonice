@@ -16,6 +16,7 @@ import type {
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { broadcastSupplyStockUpdate } from "@/lib/stock-broadcast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -516,12 +517,20 @@ export async function addSupplyStock(supplyId: string, input: unknown) {
   if (!supply) return { success: false as const, error: "Insumo no encontrado" };
 
   // Update stock quantity (atomic via RPC to prevent race conditions)
-  const { error: updateError } = await supabase.rpc("fn_increment_supply_stock", {
+  const { data: newStock, error: updateError } = await supabase.rpc("fn_increment_supply_stock", {
     p_supply_id: supplyId,
     p_quantity: quantity,
   });
 
   if (updateError) return { success: false as const, error: updateError.message };
+
+  // Los insumos nunca viajaron por el canal de realtime: `stockUpdates` sólo
+  // llevaba `product_id`.
+  if (typeof newStock === "number") {
+    void broadcastSupplyStockUpdate(tenantId, supplyId, newStock).catch((e) =>
+      console.error("[addSupplyStock] broadcast error:", e),
+    );
+  }
 
   // Create stock movement record
   await supabase.from("inventory_movements").insert({

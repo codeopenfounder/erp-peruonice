@@ -3,7 +3,6 @@
  * Refactor de la implementación original src/lib/sunat/apisunat.ts envuelta en clase.
  */
 
-import { createAdminClient } from "@/lib/supabase/admin";
 import {
   formatEmissionDate,
   getNCReason,
@@ -19,7 +18,6 @@ import type {
   SunatProviderResponse,
   VoidResult,
 } from "../types";
-import { SUNAT_STATUS_MAP } from "../types";
 
 export class ApiSunatAdapter implements SunatProvider {
   readonly name = "apisunat";
@@ -177,32 +175,11 @@ export class ApiSunatAdapter implements SunatProvider {
         result.sunatResponseDesc = errors || json.message;
       }
 
-      const adminClient = createAdminClient();
-      await adminClient
-        .from("invoices")
-        .update({
-          status: SUNAT_STATUS_MAP[result.status] || "sent_to_sunat",
-          sunat_document_id: result.documentId,
-          sunat_response_code: result.sunatResponseCode,
-          sunat_response_desc: result.sunatResponseDesc,
-          hash_code: result.hashCode,
-          xml_url: result.xmlUrl,
-          cdr_url: result.cdrUrl,
-        })
-        .eq("id", invoiceId);
-
+      // La persistencia la hace quien llama, vía persistSunatResult().
+      void invoiceId;
       return result;
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : "Error de conexión";
-      try {
-        const errClient = createAdminClient();
-        await errClient
-          .from("invoices")
-          .update({ sunat_response_desc: errorMsg })
-          .eq("id", invoiceId);
-      } catch {
-        /* non-blocking */
-      }
       return {
         success: false,
         documentId: null,

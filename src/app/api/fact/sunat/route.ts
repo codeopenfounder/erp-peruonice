@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { getSunatProvider } from "@/lib/sunat/factory";
+import { persistSunatResult, registerSunatAttempt } from "@/lib/sunat/persist";
 
 export async function POST(request: Request) {
   try {
@@ -22,7 +23,9 @@ export async function POST(request: Request) {
     // Verify invoice belongs to tenant
     const { data: invoice, error: invError } = await adminClient
       .from("invoices")
-      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, opening_id, has_detraction, detraction_code, detraction_percentage, detraction_amount, detraction_payment_method")
+      // `payment_method` decide si la devolución sale del cajón o va por el
+      // adquirente; sin él la anulación la forzaba siempre a efectivo.
+      .select("id, series_id, correlative_number, document_type, customer_id, op_gravada, op_exonerada, op_inafecta, igv_total, total, status, payment_method, sunat_document_id, reference_invoice_id, reference_reason, created_at, customer_document_type, customer_document_number, customer_name, customer_address, cash_register_id, opening_id, has_detraction, detraction_code, detraction_percentage, detraction_amount, detraction_payment_method")
       .eq("id", invoiceId)
       .eq("tenant_id", ctx.tenantId)
       .single();
@@ -78,19 +81,68 @@ export async function POST(request: Request) {
 
       const reason = body?.reason || "Anulación de la operación";
       const authorization = body?.authorization;
+
+      // Correlativo del resumen de bajas (RA). SUNAT identifica el resumen por
+      // `RA-AAAAMMDD-N` y N tiene que ser propio y creciente dentro del día: el
+      // adapter lo mandaba fijo a 1, así que la segunda baja de la jornada
+      // reutilizaba el identificador de la primera. Se resuelve aquí porque los
+      // adapters son puros y no tocan la base.
+      //
+      // apisunat gestiona su propio correlativo de resumen y lo ignora; pedirlo
+      // igualmente no cuesta nada y mantiene el registro completo.
+      let summaryRef: { correlative: number; referenceDate: string } | undefined;
+      const { data: summaryCorrelative, error: summaryCorrError } = await adminClient.rpc(
+        "fn_next_summary_correlative",
+        {
+          p_tenant_id: ctx.tenantId,
+          p_summary_type: "RA",
+          p_reference_date: peruToday,
+        },
+      );
+      if (!summaryCorrError && typeof summaryCorrelative === "number") {
+        summaryRef = { correlative: summaryCorrelative, referenceDate: peruToday };
+      } else if (summaryCorrError) {
+        console.error("[sunat-void] No se pudo obtener el correlativo del resumen:", summaryCorrError);
+      }
+
       const result = await provider.void(
         factConfig,
         invoice.document_type,
         seriesCode,
         invoice.correlative_number,
         reason,
+        summaryRef,
       );
+
+      // El resumen se registra tanto si SUNAT lo aceptó como si no: un RA que se
+      // envió y falló ya consumió su correlativo, y sin el registro no habría
+      // forma de saber qué se mandó ni con qué ticket consultarlo después.
+      const sentSummary = result.summary ?? summaryRef;
+      if (sentSummary) {
+        const { error: summaryInsertError } = await adminClient.from("sunat_summaries").insert({
+          tenant_id: ctx.tenantId,
+          summary_type: "RA",
+          reference_date: sentSummary.referenceDate,
+          correlative: sentSummary.correlative,
+          ticket: result.ticket,
+          status: result.success ? "pending" : "failed",
+          response_desc: result.error,
+          created_by: ctx.userId,
+        });
+        if (summaryInsertError) {
+          console.error("[sunat-void] No se pudo registrar el resumen:", summaryInsertError);
+        }
+      }
 
       if (result.success) {
         await adminClient
           .from("invoices")
           .update({
             status: "voided",
+            // El resumen devuelve un ticket, no una aceptación: hasta que se
+            // consulte con ConsultarEstadoTicket, la baja está sólo recibida.
+            // La columna existía desde 00030 y no la escribía nadie.
+            sunat_ticket_status: result.ticket ? "pending" : null,
             authorized_by: authorization?.authorizer_id || ctx.userId,
             authorized_by_name: authorization?.authorizer_name || ctx.userName,
             authorized_at: new Date().toISOString(),
@@ -223,42 +275,63 @@ export async function POST(request: Request) {
           }
         }
 
-        // Create refund cash_register_movement
-        // Use the invoice's own opening_id (the opening where the sale was made)
-        const refundOpeningId = invoice.opening_id;
-        if (refundOpeningId) {
-          // Ensure opening exists in Supabase (may not be synced yet from POI Fact)
-          const { data: openingExists } = await adminClient
-            .from("cash_register_openings")
-            .select("id")
-            .eq("id", refundOpeningId)
-            .maybeSingle();
+        // Movimiento de devolución en caja.
+        //
+        // Antes se cargaba a la apertura de la VENTA ORIGINAL y, si esa apertura
+        // ya no existía, se creaba sintéticamente con `status: "open"` y saldo 0
+        // — es decir, se reabría una caja cerrada y arqueada, cuyo arqueo ya
+        // había sido firmado. Una devolución diferida va a la caja abierta hoy,
+        // con referencia cruzada al comprobante original.
+        //
+        // Y el método de pago iba forzado a "cash": devolver una venta cobrada
+        // con tarjeta descuadraba el efectivo, porque esa devolución va por el
+        // adquirente y no toca el cajón.
+        const documentLabel = `${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`;
+        let cashWarning: string | null = null;
 
-          if (!openingExists) {
-            try {
-              await adminClient.from("cash_register_openings").insert({
-                id: refundOpeningId,
-                tenant_id: ctx.tenantId,
-                cash_register_id: invoice.cash_register_id || null,
-                opened_by: ctx.userId,
-                opening_amount: 0,
-                status: "open",
-              });
-            } catch { /* may exist from concurrent request */ }
+        const { data: openOpening } = invoice.cash_register_id
+          ? await adminClient
+              .from("cash_register_openings")
+              .select("id")
+              .eq("tenant_id", ctx.tenantId)
+              .eq("cash_register_id", invoice.cash_register_id)
+              .eq("status", "open")
+              .order("opened_at", { ascending: false })
+              .limit(1)
+              .maybeSingle()
+          : { data: null };
+
+        if (openOpening) {
+          const { error: movementError } = await adminClient
+            .from("cash_register_movements")
+            .insert({
+              tenant_id: ctx.tenantId,
+              opening_id: openOpening.id,
+              type: "refund",
+              amount: invoice.total,
+              description: `Anulación: ${documentLabel}`,
+              invoice_id: invoiceId,
+              payment_method: invoice.payment_method || "cash",
+              created_by: ctx.userId,
+              cash_register_id: invoice.cash_register_id,
+            });
+          if (movementError) {
+            cashWarning = `La anulación se registró en SUNAT, pero la devolución no se pudo registrar en caja: ${movementError.message}`;
+            console.error("[sunat/void] Refund movement insert failed:", movementError.message);
           }
-
-          await adminClient.from("cash_register_movements").insert({
-            tenant_id: ctx.tenantId,
-            opening_id: refundOpeningId,
-            type: "refund",
-            amount: invoice.total,
-            description: `Anulación: ${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`,
-            invoice_id: invoiceId,
-            payment_method: "cash",
-            created_by: ctx.userId,
-            cash_register_id: invoice.cash_register_id,
-          });
+        } else {
+          // La anulación ante SUNAT es el acto fiscal y ya está hecha: no se
+          // bloquea por no poder anotar la caja, pero tampoco se inventa una.
+          cashWarning =
+            "La anulación se registró en SUNAT, pero la devolución no se anotó en caja porque no hay ninguna caja abierta. Ábrela y registra el egreso a mano.";
+          console.warn(`[sunat/void] ${documentLabel}: sin apertura abierta para registrar el refund`);
         }
+
+        return NextResponse.json({
+          success: result.success,
+          data: result,
+          warning: cashWarning,
+        });
       }
 
       return NextResponse.json({
@@ -416,7 +489,9 @@ export async function POST(request: Request) {
         detraction_account: factConfigRaw.detraction_account || null,
       };
 
+      await registerSunatAttempt(invoice.id);
       const result = await provider.submit(factConfig, invoice.id, invoiceForSunat);
+      await persistSunatResult(invoice.id, result);
 
       return NextResponse.json({
         success: result.success,
@@ -439,17 +514,26 @@ export async function POST(request: Request) {
         invoice.correlative_number,
       );
 
-      // If found at SUNAT and currently not accepted, update status
+      // If found at SUNAT and currently not accepted, update status.
+      // Solo se escriben los campos que el proveedor devolvió con valor: una
+      // consulta puede no traer hash/XML/CDR, y pisarlos con null borraría los
+      // que se guardaron al emitir.
       if (result.success && invoice.status !== "accepted") {
-        await adminClient
+        const patch: Record<string, unknown> = { status: "accepted" };
+        if (result.hash) patch.hash_code = result.hash;
+        if (result.xmlUrl) patch.xml_url = result.xmlUrl;
+        if (result.cdrUrl) patch.cdr_url = result.cdrUrl;
+
+        const { error: statusErr } = await adminClient
           .from("invoices")
-          .update({
-            status: "accepted",
-            hash_code: result.hash,
-            xml_url: result.xmlUrl,
-            cdr_url: result.cdrUrl,
-          })
+          .update(patch)
           .eq("id", invoiceId);
+        if (statusErr) {
+          return NextResponse.json(
+            { success: false, error: `No se pudo actualizar el comprobante: ${statusErr.message}` },
+            { status: 500 },
+          );
+        }
       }
 
       return NextResponse.json({

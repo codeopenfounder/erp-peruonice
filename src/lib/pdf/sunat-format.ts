@@ -1,6 +1,8 @@
 // Helpers de formateo SUNAT compartidos.
 // Mantén este archivo sincronizado con kronos-fact/src/lib/pdf/sunat-format.ts.
 
+import { noteReasonLabel } from "@/lib/sunat/note-effects";
+
 export type DocumentType = "boleta" | "factura" | "nota_credito" | "nota_debito";
 
 export function docLabel(type: string): string {
@@ -73,29 +75,20 @@ export function currencySymbol(currency: string): string {
   return currency === "USD" ? "US$" : "S/";
 }
 
-export const NC_REASONS: Record<string, string> = {
-  "01": "Anulación de la operación",
-  "02": "Anulación por error en el RUC",
-  "03": "Corrección por error en la descripción",
-  "04": "Descuento global",
-  "05": "Descuento por item",
-  "06": "Devolución total",
-  "07": "Devolución por item",
-  "09": "Disminución en el valor",
-  "10": "Otros conceptos",
-};
-
-export const ND_REASONS: Record<string, string> = {
-  "01": "Intereses por mora",
-  "02": "Aumento en el valor",
-  "03": "Penalidades / Otros cargos",
-};
-
+/**
+ * Etiqueta del motivo impresa en el PDF. Sale de la matriz de
+ * `lib/sunat/note-effects.ts`: aquí vivía un tercer mapa duplicado al que le
+ * faltaba el motivo 08, así que una nota de bonificación se imprimía como "08".
+ */
 export function reasonLabel(code: string, docType: string): string {
-  const reasons = docType === "nota_credito" ? NC_REASONS : ND_REASONS;
-  return reasons[code] || code;
+  return noteReasonLabel(docType, code) || code;
 }
 
+/**
+ * Payload del QR de SUNAT. El décimo campo es el hash del XML firmado
+ * (DigestValue); sin él el comprobante no se puede verificar en el portal de
+ * SUNAT. Iba siempre vacío porque nada llenaba `hash_code`.
+ */
 export function buildSunatQrPayload(args: {
   ruc: string;
   documentType: string;
@@ -106,6 +99,7 @@ export function buildSunatQrPayload(args: {
   issueDateIso: string;
   customerDocType: string | null;
   customerDocNumber: string | null;
+  hashCode?: string | null;
 }): string {
   const dateStr = formatDateOnly(args.issueDateIso);
   return [
@@ -118,6 +112,6 @@ export function buildSunatQrPayload(args: {
     dateStr,
     args.customerDocType ? customerDocCode(args.customerDocType) : "-",
     args.customerDocNumber || "-",
-    "",
+    args.hashCode || "",
   ].join("|");
 }

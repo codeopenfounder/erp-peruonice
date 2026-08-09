@@ -8,6 +8,12 @@ import { getEntityMovements } from "./inventory-movements";
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import {
+  broadcastAssignmentsChange,
+  broadcastProductDelete,
+  broadcastProductUpsertById,
+  broadcastStockUpdate,
+} from "@/lib/stock-broadcast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -445,6 +451,16 @@ export async function createProduct(input: unknown) {
     type: "info",
   }).catch((e) => console.error("[createProduct] notify error:", e));
 
+  void broadcastProductUpsertById(tenantId, product.id).catch((e) =>
+    console.error("[createProduct] broadcast error:", e),
+  );
+
+  if (category_ids?.length || tag_ids?.length) {
+    void broadcastAssignmentsChange(tenantId).catch((e) =>
+      console.error("[createProduct] assignments broadcast error:", e),
+    );
+  }
+
   revalidatePath("/inventario/productos");
   revalidatePath("/inventario/servicios");
   return { success: true as const, productId: product.id };
@@ -541,6 +557,20 @@ export async function updateProduct(id: string, input: unknown) {
     type: "info",
   }).catch((e) => console.error("[updateProduct] notify error:", e));
 
+  // Cambios de precio, de nombre o de receta llegaban a las cajas sólo por pull.
+  void broadcastProductUpsertById(tenantId, id).catch((e) =>
+    console.error("[updateProduct] broadcast error:", e),
+  );
+
+  // Las asignaciones no viajan en el evento del producto: el POS las trae
+  // completas en cada pull, así que se le pide uno. Sólo cuando cambiaron de
+  // verdad — si no, cada guardado dispararía un pull en todas las cajas.
+  if (category_ids !== undefined || tag_ids !== undefined) {
+    void broadcastAssignmentsChange(tenantId).catch((e) =>
+      console.error("[updateProduct] assignments broadcast error:", e),
+    );
+  }
+
   revalidatePath("/inventario/productos");
   revalidatePath("/inventario/servicios");
   revalidatePath(`/inventario/productos/${id}`);
@@ -587,6 +617,11 @@ export async function deleteProduct(id: string) {
     type: "info",
   }).catch((e) => console.error("[deleteProduct] notify error:", e));
 
+  // Sin esto, la baja no llegaba a ninguna caja hasta el pull siguiente.
+  void broadcastProductDelete(tenantId, id).catch((e) =>
+    console.error("[deleteProduct] broadcast error:", e),
+  );
+
   revalidatePath("/inventario/productos");
   revalidatePath("/inventario/servicios");
   return { success: true as const, message: `${label.charAt(0).toUpperCase() + label.slice(1)} eliminado exitosamente.` };
@@ -618,12 +653,20 @@ export async function addProductStock(productId: string, input: unknown) {
   if (!product) return { success: false as const, error: "Producto no encontrado" };
 
   // Update stock quantity (atomic via RPC to prevent race conditions)
-  const { error: updateError } = await supabase.rpc("fn_increment_stock", {
+  const { data: newStock, error: updateError } = await supabase.rpc("fn_increment_stock", {
     p_product_id: productId,
     p_quantity: quantity,
   });
 
   if (updateError) return { success: false as const, error: updateError.message };
+
+  // El stock que devuelve la RPC se descartaba; con él, las cajas se enteran del
+  // ingreso al instante en vez de esperar al pull.
+  if (typeof newStock === "number") {
+    void broadcastStockUpdate(tenantId, productId, newStock).catch((e) =>
+      console.error("[addProductStock] broadcast error:", e),
+    );
+  }
 
   // Create stock movement record
   const { data: defaultBranch } = await supabase.from("branches").select("id").eq("tenant_id", tenantId).limit(1).single();

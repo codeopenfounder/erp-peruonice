@@ -2,15 +2,22 @@
  * Adapter para Bilme (https://billmeperu.com)
  * Documentación: https://quinodevelop.gitbook.io/billme/
  *
- * Diferencias clave vs apisunat.pe:
- * - Header `token` (no Bearer)
- * - Endpoints separados por tipo de comprobante
- * - Devuelve XML/CDR como base64 → se sube a Supabase Storage y se persiste signed URL
- * - Anulación SIEMPRE async vía EnviarResumen "RA" → ticket → polling con ConsultarEstadoTicket
- * - Requiere desglose línea por línea de impuestos con catálogos SUNAT
+ * Todo lo de este archivo está verificado contra la API real, no solo contra la
+ * documentación: la doc no contiene ni un solo ejemplo de respuesta y varias de
+ * sus tablas contradicen a sus propios ejemplos.
+ *
+ * Particularidades que condicionan el diseño:
+ * - Header `token` plano (no Bearer).
+ * - Un solo host: el ambiente (beta vs producción de SUNAT) lo determina el
+ *   TOKEN, según se haya registrado la empresa como "Desarrollo" o "Producción".
+ *   Por eso `is_production` aquí no elige URL; solo habilita ConsultarCdr.
+ * - Devuelve XML y CDR en base64, nunca URLs ni PDF, y los purga a los 40-90
+ *   días → se suben a Supabase Storage y se guarda una signed URL.
+ * - No devuelve el hash: hay que extraerlo del XML firmado.
+ * - No detecta duplicados: reenviar el mismo comprobante responde "aceptada"
+ *   otra vez. La unicidad la garantiza el índice de `invoices`.
  */
 
-import { createAdminClient } from "@/lib/supabase/admin";
 import {
   addDaysISO,
   formatEmissionDate,
@@ -31,26 +38,42 @@ import type {
   SunatInvoiceItemInput,
   SunatProvider,
   SunatProviderResponse,
+  SunatSummaryRef,
   VoidResult,
 } from "../types";
-import { SUNAT_STATUS_MAP } from "../types";
 import {
+  DEFAULT_CODIGO_CLASIFICACION,
   mapCodigoAfectacionIgv,
-  mapCodigoTipoDocumento,
   mapCodigoTipoPrecio,
   mapCodigoTributo,
   mapCodigoUnidad,
+  tryMapCodigoTipoDocumento,
 } from "./bilme-mappings";
 
-interface BilmeResponse {
+/** Establecimiento anexo. "0000" = domicilio fiscal (default de Billme). */
+const SUCURSAL_DEFAULT = "0000";
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** El objeto útil, que siempre viene anidado bajo `data`. */
+interface BilmeData {
   description?: string;
   observations?: string[];
   faultCode?: string;
   faultDescription?: string;
   ticketNumber?: string | null;
+  /** El comprobante UBL firmado, en base64. Viene incluso si SUNAT lo rechaza. */
   xmlDocument?: string;
-  xmlBase64?: string;
+  /** CDR de SUNAT (ZIP en base64). Vacío cuando hay rechazo. */
   cdrBase64?: string;
+  xmlBase64?: string;
+}
+
+/** Resultado normalizado de una llamada, ya con las 3 formas de respuesta resueltas. */
+interface BilmeCall {
+  httpOk: boolean;
+  data: BilmeData | null;
+  /** Mensaje legible cuando el fallo no viene en forma de `faultCode`. */
+  transportError: string | null;
 }
 
 export class BilmeAdapter implements SunatProvider {
@@ -58,7 +81,7 @@ export class BilmeAdapter implements SunatProvider {
   private readonly baseUrl = "https://www.api.billmeperu.com/api/v1";
 
   // -------------------------------------------------------------------------
-  // Public methods
+  // Métodos públicos
   // -------------------------------------------------------------------------
 
   async submit(
@@ -66,253 +89,352 @@ export class BilmeAdapter implements SunatProvider {
     invoiceId: string,
     invoice: SunatInvoiceInput,
   ): Promise<SunatProviderResponse> {
-    try {
-      const endpoint = this.endpointForDocument(invoice.document_type);
-      const payload = this.buildPayload(config, invoice);
-      const json = await this.post<BilmeResponse>(
-        endpoint,
-        config.api_token,
-        payload,
+    const endpoint = this.endpointForDocument(invoice.document_type);
+    if (!endpoint) {
+      return this.failure(
+        `Tipo de documento no emitible en SUNAT: ${invoice.document_type}`,
       );
+    }
 
-      const isSuccess = !json.faultCode || json.faultCode === "";
+    const documentId = `${invoice.series_code}-${padCorrelative(invoice.correlative_number)}`;
+
+    try {
+      const payload = this.buildPayload(config, invoice);
+      const call = await this.post(endpoint, config.api_token, payload);
+
+      // Éxito = HTTP ok + sobre presente + faultCode vacío. En rechazo llega
+      // "soap-env:Client.2800"; en algunos errores llega "-". Nunca undefined,
+      // salvo que la respuesta no sea el sobre de Billme.
+      const accepted =
+        call.httpOk && !!call.data && !call.data.faultCode;
+
+      if (!call.data) {
+        return this.failure(call.transportError ?? "Respuesta vacía de Bilme");
+      }
+
       const { fecha } = formatEmissionDate(invoice.created_at);
       const emittedAt = new Date(fecha);
 
       let xmlUrl: string | null = null;
       let cdrUrl: string | null = null;
+      let hashCode: string | null = null;
 
-      if (isSuccess) {
+      if (accepted) {
+        hashCode = extractDigestValue(call.data.xmlDocument);
         try {
           xmlUrl = await this.uploadIfPresent(
-            json.xmlBase64 || json.xmlDocument,
+            call.data.xmlDocument,
             config.tenant_id,
             invoiceId,
             "xml",
             emittedAt,
           );
           cdrUrl = await this.uploadIfPresent(
-            json.cdrBase64,
+            call.data.cdrBase64,
             config.tenant_id,
             invoiceId,
             "cdr",
             emittedAt,
           );
         } catch (err) {
-          // Storage falló pero Bilme aceptó: no romper la emisión.
-          // Persistimos accepted con xml_url=null; status() puede regenerar.
-          console.error("[BilmeAdapter] Storage upload failed", err);
+          // Bilme aceptó pero Storage falló: no se invalida una emisión buena
+          // por no haber podido archivar el XML. status() puede recuperarlo.
+          console.error("[BilmeAdapter] Falló la subida a Storage", err);
         }
       }
 
-      const result: SunatProviderResponse = {
-        success: isSuccess,
-        documentId: `${invoice.series_code}-${padCorrelative(invoice.correlative_number)}`,
-        status: isSuccess ? "ACEPTADO" : "RECHAZADO",
-        sunatResponseCode: json.faultCode || null,
-        sunatResponseDesc:
-          json.description || json.faultDescription || (json.observations || []).join("; ") || null,
-        hashCode: null,
+      return {
+        success: accepted,
+        documentId,
+        status: accepted ? "ACEPTADO" : "RECHAZADO",
+        sunatResponseCode: accepted
+          ? null
+          : normalizeFaultCode(call.data.faultCode) ?? "ERROR",
+        sunatResponseDesc: accepted
+          ? call.data.description ?? null
+          : this.describeFailure(call),
+        hashCode,
         xmlUrl,
         cdrUrl,
-        ticket: json.ticketNumber || null,
+        ticket: call.data.ticketNumber || null,
       };
-
-      await this.persistToInvoice(invoiceId, result);
-      return result;
     } catch (error) {
-      const errorMsg =
-        error instanceof Error ? error.message : "Error de conexión Bilme";
-      try {
-        const errClient = createAdminClient();
-        await errClient
-          .from("invoices")
-          .update({ sunat_response_desc: errorMsg })
-          .eq("id", invoiceId);
-      } catch {
-        /* non-blocking */
-      }
-      return {
-        success: false,
-        documentId: null,
-        status: "RECHAZADO",
-        sunatResponseCode: "ERROR",
-        sunatResponseDesc: errorMsg,
-        hashCode: null,
-        xmlUrl: null,
-        cdrUrl: null,
-      };
+      return this.failure(
+        error instanceof Error ? error.message : "Error de conexión con Bilme",
+      );
     }
   }
 
+  /**
+   * Anulación por Resumen de Bajas (RA). Billme no tiene endpoint de anulación:
+   * se envía un resumen y devuelve un TICKET que hay que consultar aparte con
+   * ConsultarEstadoTicket. La respuesta inmediata sólo dice que SUNAT recibió el
+   * resumen, no que lo haya aceptado.
+   *
+   * El correlativo del resumen lo numera el emisor, no Billme. Antes iba fijo a
+   * "1", así que la segunda baja del mismo día reutilizaba el identificador
+   * `RA-AAAAMMDD-1` del primer resumen. Ahora lo aporta quien llama, resuelto con
+   * `fn_next_summary_correlative()`; el adapter sigue sin tocar la base.
+   *
+   * Nota de alcance: el botón "Anular" del POS sigue deshabilitado a propósito —
+   * se anula emitiendo una NC motivo 01, que es válido, síncrono y no depende de
+   * consultar un ticket. Este camino existe para la anulación desde el ERP.
+   */
   async void(
     config: FactConfig,
     documentType: string,
     seriesCode: string,
     correlativeNumber: number,
     reason: string,
+    summary?: SunatSummaryRef,
   ): Promise<VoidResult> {
-    try {
-      const payload = this.buildResumenAnulacionPayload(
-        config,
-        documentType,
-        seriesCode,
-        correlativeNumber,
-        reason,
-      );
-      const json = await this.post<BilmeResponse>(
-        "/Emission/EnviarResumen",
-        config.api_token,
-        payload,
-      );
-      const isSuccess = !json.faultCode || json.faultCode === "";
+    const codigo = tryMapCodigoTipoDocumento(documentType);
+    if (!codigo) {
+      return { success: false, ticket: null, error: `Tipo de documento no anulable: ${documentType}` };
+    }
+
+    // Una boleta NO se da de baja por RA: el RA (VoidedDocuments) cubre facturas
+    // y las notas vinculadas a factura. La baja de una boleta va dentro de un
+    // Resumen Diario con el ítem en estado 3, que es otro documento y otro
+    // flujo. Mandarla por RA produce un rechazo de SUNAT, así que se corta aquí
+    // con un mensaje que dice qué hacer en su lugar.
+    if (codigo === "03") {
       return {
-        success: isSuccess,
-        ticket: json.ticketNumber || null,
-        error: isSuccess
-          ? null
-          : json.faultDescription || json.description || null,
+        success: false,
+        ticket: null,
+        error:
+          "Una boleta no se anula por Resumen de Bajas. Emita una nota de crédito con motivo 01 (anulación de la operación).",
+      };
+    }
+
+    const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
+    const ref: SunatSummaryRef = summary ?? { correlative: 1, referenceDate: hoy };
+
+    try {
+      const call = await this.post("/Emission/EnviarResumen", config.api_token, {
+        tipoComprobante: "RA",
+        // Billme llama "serie" al AAAAMMDD del identificador del resumen.
+        serie: ref.referenceDate.replace(/-/g, ""),
+        correlativo: String(ref.correlative),
+        fechaReferencia: ref.referenceDate,
+        fechaEnvio: hoy,
+        emisor: {
+          codigoTipoDocumento: "6",
+          numDocumento: config.ruc,
+          razonSocial: config.razon_social,
+        },
+        documentos: [
+          {
+            codigoTipoDocumento: codigo,
+            serieComprobante: seriesCode,
+            correlativo: String(correlativeNumber),
+          },
+        ],
+        comentario: reason || "Anulación de la operación",
+      });
+
+      const ok = call.httpOk && !!call.data && !call.data.faultCode;
+      return {
+        success: ok,
+        ticket: call.data?.ticketNumber || null,
+        error: ok ? null : this.describeFailure(call),
+        summary: ref,
       };
     } catch (error) {
       return {
         success: false,
         ticket: null,
-        error:
-          error instanceof Error ? error.message : "Error de conexión Bilme",
+        error: error instanceof Error ? error.message : "Error de conexión con Bilme",
+        summary: ref,
       };
     }
   }
 
+  /**
+   * Consulta del CDR. Verificado contra la API: solo funciona para empresas de
+   * PRODUCCIÓN y solo para facturas, notas de crédito y notas de débito. Con un
+   * token de desarrollo responde 401, y para boletas no está disponible.
+   */
   async status(
     config: FactConfig,
     documentType: string,
     seriesCode: string,
     correlativeNumber: number,
   ): Promise<StatusResult> {
-    try {
-      const json = await this.post<BilmeResponse>(
-        "/Emission/ConsultarCdr",
-        config.api_token,
-        {
-          numDocEmisor: config.ruc,
-          tipoComprobante: mapCodigoTipoDocumento(documentType),
-          serie: seriesCode,
-          correlativo: String(correlativeNumber),
-        },
+    const codigo = tryMapCodigoTipoDocumento(documentType);
+    if (!codigo) {
+      return this.statusFailure(`Tipo de documento no consultable: ${documentType}`);
+    }
+    if (codigo === "03") {
+      return this.statusFailure(
+        "Bilme no permite consultar el CDR de boletas. Solo facturas y notas.",
       );
+    }
+    if (!config.is_production) {
+      return this.statusFailure(
+        "La consulta de CDR solo está disponible con un token de empresa de producción.",
+      );
+    }
 
-      const isSuccess = !json.faultCode || json.faultCode === "";
-      let cdrUrl: string | null = null;
+    try {
+      const call = await this.post("/Emission/ConsultarCdr", config.api_token, {
+        numDocEmisor: config.ruc,
+        tipoComprobante: codigo,
+        serie: seriesCode,
+        correlativo: String(correlativeNumber),
+      });
+
+      const ok = call.httpOk && !!call.data && !call.data.faultCode;
+      if (!ok) return this.statusFailure(this.describeFailure(call));
+
+      const data = call.data!;
       let xmlUrl: string | null = null;
-
-      if (isSuccess) {
-        try {
-          const path = `${config.tenant_id}/_status_recovered/${seriesCode}-${padCorrelative(correlativeNumber)}`;
-          if (json.cdrBase64) {
-            cdrUrl = await uploadAndSign(
-              Buffer.from(json.cdrBase64, "base64"),
-              `${path}.cdr.zip`,
-              "application/zip",
-            );
-          }
-          if (json.xmlBase64 || json.xmlDocument) {
-            const xmlData = json.xmlBase64 || json.xmlDocument!;
-            xmlUrl = await uploadAndSign(
-              Buffer.from(xmlData, "base64"),
-              `${path}.xml`,
-              "application/xml",
-            );
-          }
-        } catch (err) {
-          console.error("[BilmeAdapter.status] Storage upload failed", err);
+      let cdrUrl: string | null = null;
+      try {
+        const path = `${config.tenant_id}/_status_recovered/${seriesCode}-${padCorrelative(correlativeNumber)}`;
+        if (data.cdrBase64) {
+          cdrUrl = await uploadAndSign(
+            Buffer.from(data.cdrBase64, "base64"),
+            `${path}.cdr.zip`,
+            "application/zip",
+          );
         }
+        if (data.xmlDocument) {
+          xmlUrl = await uploadAndSign(
+            Buffer.from(data.xmlDocument, "base64"),
+            `${path}.xml`,
+            "application/xml",
+          );
+        }
+      } catch (err) {
+        console.error("[BilmeAdapter.status] Falló la subida a Storage", err);
       }
 
       return {
-        success: isSuccess,
-        hash: null,
+        success: true,
+        hash: extractDigestValue(data.xmlDocument),
         xmlUrl,
         cdrUrl,
-        message: json.description || json.faultDescription || null,
+        message: data.description ?? null,
       };
     } catch (error) {
-      return {
-        success: false,
-        hash: null,
-        xmlUrl: null,
-        cdrUrl: null,
-        message:
-          error instanceof Error ? error.message : "Error de conexión Bilme",
-      };
+      return this.statusFailure(
+        error instanceof Error ? error.message : "Error de conexión con Bilme",
+      );
     }
   }
+
+  // -------------------------------------------------------------------------
+  // Transporte
+  // -------------------------------------------------------------------------
 
   /**
-   * Hace polling de un ticket asíncrono de Bilme (anulaciones).
-   * Para uso futuro por un job de reconciliación.
+   * Normaliza las tres formas de respuesta que devuelve la API:
+   *   1. Sobre de Billme:  { statusCode, message, data: {...} | null }
+   *   2. ProblemDetails de ASP.NET (validación de modelo):
+   *      { title, status, errors: { "Emisor.Ubigeo": ["..."] } }  — sin `data`
+   *   3. Cuerpo no-JSON (proxy caído, HTML de error)
    */
-  async pollTicket(
-    config: FactConfig,
-    ticketNumber: string,
-    documentType: string,
-    seriesCode: string,
-    correlativeNumber: number,
-  ): Promise<VoidResult> {
-    try {
-      const json = await this.post<BilmeResponse>(
-        "/Emission/ConsultarEstadoTicket",
-        config.api_token,
-        {
-          numDocEmisor: config.ruc,
-          numTicket: ticketNumber,
-          tipoComprobante: "RA",
-          serie: this.buildResumenSerie(),
-          correlativo: "1",
-        },
-      );
-      void documentType;
-      void seriesCode;
-      void correlativeNumber;
-      const isSuccess = !json.faultCode || json.faultCode === "";
-      return {
-        success: isSuccess,
-        ticket: ticketNumber,
-        error: isSuccess
-          ? null
-          : json.faultDescription || json.description || null,
-      };
-    } catch (error) {
-      return {
-        success: false,
-        ticket: ticketNumber,
-        error:
-          error instanceof Error ? error.message : "Error de conexión Bilme",
-      };
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Internal helpers
-  // -------------------------------------------------------------------------
-
-  private async post<T>(
+  private async post(
     endpoint: string,
     token: string,
     body: unknown,
-  ): Promise<T> {
-    const res = await fetch(`${this.baseUrl}${endpoint}`, {
-      method: "POST",
-      headers: {
-        token,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-    const json = (await res.json()) as T;
-    return json;
+  ): Promise<BilmeCall> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: "POST",
+        headers: {
+          token,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      text = await res.text();
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new Error(
+          `Bilme no respondió en ${REQUEST_TIMEOUT_MS / 1000}s (${endpoint})`,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+
+    let json: unknown;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return {
+        httpOk: false,
+        data: null,
+        transportError: `Bilme devolvió una respuesta no válida (HTTP ${res.status}): ${text.slice(0, 200)}`,
+      };
+    }
+
+    const body_ = json as {
+      message?: string;
+      data?: BilmeData | null;
+      title?: string;
+      errors?: Record<string, string[]>;
+    };
+
+    // Forma 2: errores de validación del modelo.
+    if (body_.errors && typeof body_.errors === "object") {
+      const detail = Object.entries(body_.errors)
+        .map(([field, msgs]) => `${field}: ${(msgs ?? []).join(", ")}`)
+        .join(" | ");
+      return {
+        httpOk: false,
+        data: null,
+        transportError: detail || body_.title || `HTTP ${res.status}`,
+      };
+    }
+
+    // Forma 1. `data` puede ser null en 401/404 (permiso o token inválido).
+    return {
+      httpOk: res.ok,
+      data: body_.data ?? null,
+      transportError: body_.data ? null : body_.message || `HTTP ${res.status}`,
+    };
   }
 
-  private endpointForDocument(documentType: string): string {
+  private describeFailure(call: BilmeCall): string {
+    const d = call.data;
+    return (
+      d?.faultDescription ||
+      d?.description ||
+      (d?.observations?.length ? d.observations.join("; ") : null) ||
+      call.transportError ||
+      "Bilme rechazó el comprobante sin indicar motivo"
+    );
+  }
+
+  private failure(message: string): SunatProviderResponse {
+    return {
+      success: false,
+      documentId: null,
+      status: "RECHAZADO",
+      sunatResponseCode: "ERROR",
+      sunatResponseDesc: message,
+      hashCode: null,
+      xmlUrl: null,
+      cdrUrl: null,
+    };
+  }
+
+  private statusFailure(message: string): StatusResult {
+    return { success: false, hash: null, xmlUrl: null, cdrUrl: null, message };
+  }
+
+  private endpointForDocument(documentType: string): string | null {
     switch (documentType) {
       case "nota_credito":
         return "/Emission/EnviarNotaCredito";
@@ -320,8 +442,9 @@ export class BilmeAdapter implements SunatProvider {
         return "/Emission/EnviarNotaDebito";
       case "boleta":
       case "factura":
-      default:
         return "/Emission/EnviarBoletaFactura";
+      default:
+        return null;
     }
   }
 
@@ -334,34 +457,12 @@ export class BilmeAdapter implements SunatProvider {
   ): Promise<string | null> {
     if (!base64) return null;
     const path = buildSunatPath(tenantId, invoiceId, kind, emittedAt);
-    const buffer = Buffer.from(base64, "base64");
-    const contentType =
-      kind === "xml" ? "application/xml" : "application/zip";
-    return uploadAndSign(buffer, path, contentType);
-  }
-
-  private async persistToInvoice(
-    invoiceId: string,
-    result: SunatProviderResponse,
-  ): Promise<void> {
-    const adminClient = createAdminClient();
-    await adminClient
-      .from("invoices")
-      .update({
-        status: SUNAT_STATUS_MAP[result.status] || "sent_to_sunat",
-        sunat_document_id: result.documentId,
-        sunat_response_code: result.sunatResponseCode,
-        sunat_response_desc: result.sunatResponseDesc,
-        hash_code: result.hashCode,
-        xml_url: result.xmlUrl,
-        cdr_url: result.cdrUrl,
-        sunat_ticket: result.ticket || null,
-      })
-      .eq("id", invoiceId);
+    const contentType = kind === "xml" ? "application/xml" : "application/zip";
+    return uploadAndSign(Buffer.from(base64, "base64"), path, contentType);
   }
 
   // -------------------------------------------------------------------------
-  // Payload builders
+  // Construcción del payload
   // -------------------------------------------------------------------------
 
   private buildPayload(
@@ -369,81 +470,141 @@ export class BilmeAdapter implements SunatProvider {
     invoice: SunatInvoiceInput,
   ): Record<string, unknown> {
     if (invoice.document_type === "nota_credito") {
-      return this.buildNotaCreditoPayload(config, invoice);
+      return this.buildNotaPayload(config, invoice, "07");
     }
     if (invoice.document_type === "nota_debito") {
-      return this.buildNotaDebitoPayload(config, invoice);
+      return this.buildNotaPayload(config, invoice, "08");
     }
     return this.buildBoletaFacturaPayload(config, invoice);
   }
 
+  /** Emisor completo, para boleta y factura. */
   private buildEmisor(config: FactConfig): Record<string, unknown> {
     return {
       codigoTipoDocumento: "6",
       numDocumento: config.ruc,
       razonSocial: config.razon_social,
-      ubigeo: config.ubigeo || undefined,
+      nombreComercial: config.razon_social,
+      ubigeo: config.ubigeo || "",
+      ciudad: config.departamento || "",
+      provincia: config.provincia || "",
+      distrito: config.distrito || "",
+      direccion: config.direccion_fiscal || "",
+      sucursal: SUCURSAL_DEFAULT,
+    };
+  }
+
+  /** En notas de crédito y débito el emisor es reducido. */
+  private buildEmisorNota(config: FactConfig): Record<string, unknown> {
+    return {
+      codigoTipoDocumento: "6",
+      numDocumento: config.ruc,
+      razonSocial: config.razon_social,
+      sucursal: SUCURSAL_DEFAULT,
     };
   }
 
   private buildCliente(invoice: SunatInvoiceInput): Record<string, unknown> {
     return {
-      codigoTipoDocumento: mapCustomerDocType(invoice.customer_document_type),
-      numDocumento: invoice.customer_document_number || "00000000",
-      razonSocial: invoice.customer_name || "CLIENTE VARIOS",
-      direccion: invoice.customer_address || "-",
+      ...this.buildClienteNota(invoice),
+      ubigeo: "",
+      ciudad: "",
+      provincia: "",
+      distrito: "",
+      direccion: invoice.customer_address || "",
     };
   }
 
+  /** En notas el cliente es reducido: solo identificación. */
+  private buildClienteNota(invoice: SunatInvoiceInput): Record<string, unknown> {
+    return {
+      codigoTipoDocumento: mapCustomerDocType(invoice.customer_document_type),
+      numDocumento: invoice.customer_document_number || "00000000",
+      razonSocial: invoice.customer_name || "CLIENTE VARIOS",
+    };
+  }
+
+  /**
+   * Los importes de línea van sin IGV salvo `precioLista`. Comprobado contra el
+   * XML que devuelve Billme:
+   *   precioUnitario     -> cac:Price/cbc:PriceAmount                (sin IGV)
+   *   precioLista        -> AlternativeConditionPrice/cbc:PriceAmount (con IGV)
+   *   montoSinImpuesto   -> cbc:LineExtensionAmount                   (valor de venta)
+   *   montoTotal         -> también cbc:LineExtensionAmount
+   *
+   * Los descuentos ya vienen aplicados dentro de `subtotal`/`total`, así que
+   * `montoDescuento` va en 0: informarlo otra vez lo descontaría dos veces.
+   */
   private buildProductos(items: SunatInvoiceItemInput[]): unknown[] {
     return items
       .filter((item) => !(item.total === 0 && item.subtotal === 0))
       .map((item, idx) => {
         const cantidad = item.quantity;
         const valorUnitario = cantidad > 0 ? item.subtotal / cantidad : 0;
+        const precioConIgv = cantidad > 0 ? item.total / cantidad : 0;
         const tributo = mapCodigoTributo(item.tax_type);
-        const codigoAfectacion = mapCodigoAfectacionIgv(item.tax_type);
-        const baseImponible = item.subtotal;
-        const igvMonto = item.igv_amount || 0;
+        const codigoAfectacionIgv = mapCodigoAfectacionIgv(item.tax_type);
+        const igvMonto = round2(item.igv_amount || 0);
+        const baseImponible = round2(item.subtotal);
 
         return {
-          id: String(idx + 1),
+          id: `p-${idx + 1}`,
           unidades: cantidad,
           codigoUnidad: mapCodigoUnidad(item.unit_of_measure),
           nombre: item.description,
-          precioUnitario: Number(valorUnitario.toFixed(6)),
-          precioLista: Number(valorUnitario.toFixed(6)),
-          montoSinImpuesto: Number(item.subtotal.toFixed(2)),
-          montoTotal: Number(item.total.toFixed(2)),
-          montoImpuestos: Number(igvMonto.toFixed(2)),
-          codigoClasificacion: "01",
-          codigoTipoPrecio: mapCodigoTipoPrecio(item.tax_type),
-          codigoAfectacionIgv: codigoAfectacion,
-          factorIcbper: 0,
+          moneda: "PEN",
+          precioUnitario: round6(valorUnitario),
+          precioLista: round6(precioConIgv),
+          montoSinImpuesto: baseImponible,
+          montoImpuestos: igvMonto,
+          montoTotal: baseImponible,
           montoIcbper: 0,
+          factorIcbper: 0,
+          montoDescuento: 0,
+          codigoTipoPrecio: mapCodigoTipoPrecio(item.tax_type),
+          codigoClasificacion: DEFAULT_CODIGO_CLASIFICACION,
           impuestos: [
             {
-              id: "1",
-              monto: Number(igvMonto.toFixed(2)),
+              monto: igvMonto,
+              idCategoria: tributo.idCategoria,
               porcentaje: Number(item.igv_rate),
-              baseImponible: Number(baseImponible.toFixed(2)),
+              codigoAfectacionIgv,
               codigoTributo: tributo.codigoTributo,
               nombreTributo: tributo.nombreTributo,
-              codigoInternacional: tributo.codigoInternacional,
-              codigoAfectacionIgv: codigoAfectacion,
+              codigoInterTributo: tributo.codigoInterTributo,
             },
           ],
         };
       });
   }
 
+  /** Boleta y factura: 9 campos. */
   private buildTotales(invoice: SunatInvoiceInput): Record<string, number> {
+    const gravadas = round2(invoice.op_gravada || 0);
+    const exoneradas = round2(invoice.op_exonerada || 0);
+    const inafectas = round2(invoice.op_inafecta || 0);
+    const total = round2(invoice.total);
     return {
-      totalOpExoneradas: Number((invoice.op_exonerada || 0).toFixed(2)),
-      totalOpInafectas: Number((invoice.op_inafecta || 0).toFixed(2)),
-      totalOpGravadas: Number((invoice.op_gravada || 0).toFixed(2)),
-      totalImpuestos: Number((invoice.igv_total || 0).toFixed(2)),
-      totalConImpuestos: Number(invoice.total.toFixed(2)),
+      totalOpExoneradas: exoneradas,
+      totalOpInafectas: inafectas,
+      totalOpGravadas: gravadas,
+      totalImpuestos: round2(invoice.igv_total || 0),
+      totalSinImpuestos: round2(gravadas + exoneradas + inafectas),
+      totalConImpuestos: total,
+      totalPagar: total,
+      totalDescuentoGlobal: 0,
+      totalDescuentoProductos: 0,
+    };
+  }
+
+  /** Notas: 5 campos, y termina en totalPagar (no lleva totalConImpuestos). */
+  private buildTotalesNota(invoice: SunatInvoiceInput): Record<string, number> {
+    return {
+      totalOpExoneradas: round2(invoice.op_exonerada || 0),
+      totalOpInafectas: round2(invoice.op_inafecta || 0),
+      totalOpGravadas: round2(invoice.op_gravada || 0),
+      totalImpuestos: round2(invoice.igv_total || 0),
+      totalPagar: round2(invoice.total),
     };
   }
 
@@ -454,12 +615,6 @@ export class BilmeAdapter implements SunatProvider {
     const { date: emissionDate, fecha, hora } = formatEmissionDate(
       invoice.created_at,
     );
-    const codigoTipoDocumento = mapCodigoTipoDocumento(invoice.document_type);
-    const fechaVencimiento =
-      invoice.document_type === "factura"
-        ? addDaysISO(emissionDate, 30)
-        : fecha;
-
     const hasDetraction =
       !!invoice.has_detraction && invoice.document_type === "factura";
 
@@ -470,12 +625,15 @@ export class BilmeAdapter implements SunatProvider {
       correlativo: String(invoice.correlative_number),
       fechaEmision: fecha,
       horaEmision: hora,
-      fechaVencimiento,
-      codigoTipoDocumento,
+      fechaVencimiento:
+        invoice.document_type === "factura"
+          ? addDaysISO(emissionDate, 30)
+          : fecha,
+      codigoTipoDocumento: invoice.document_type === "factura" ? "01" : "03",
       moneda: "PEN",
       montoCredito: 0,
       formaPago: "Contado",
-      igv: Number((invoice.igv_total || 0).toFixed(2)),
+      igv: round2(invoice.igv_total || 0),
       icbper: 0,
       cuotas: [],
       emisor: this.buildEmisor(config),
@@ -490,102 +648,81 @@ export class BilmeAdapter implements SunatProvider {
         cuentaBancaria: invoice.detraction_account || "",
         codigoBienServicio: invoice.detraction_code || "",
         porcentaje: invoice.detraction_percentage ?? 0,
-        monto: Number((invoice.detraction_amount ?? 0).toFixed(2)),
+        monto: round2(invoice.detraction_amount ?? 0),
       };
     }
 
     return payload;
   }
 
-  private buildNotaCreditoPayload(
+  /** Nota de crédito (07) y de débito (08) comparten estructura. */
+  private buildNotaPayload(
     config: FactConfig,
     invoice: SunatInvoiceInput,
+    tipoComprobante: "07" | "08",
   ): Record<string, unknown> {
     const { fecha, hora } = formatEmissionDate(invoice.created_at);
+    const esCredito = tipoComprobante === "07";
+    const codigoMotivo = invoice.reference_reason || (esCredito ? "01" : "02");
     const refDocType = invoice.reference_document_type || "boleta";
-    const codigoMotivo = invoice.reference_reason || "01";
 
     return {
-      tipoComprobante: "07",
-      codigoMotivo,
-      descripcionMotivo: getNCReason(codigoMotivo),
-      tipoComprobanteRef: mapCodigoTipoDocumento(refDocType),
-      serieRef: invoice.reference_series || "",
-      correlativoRef: String(invoice.reference_correlative ?? ""),
+      tipoComprobante,
+      moneda: "PEN",
       serie: invoice.series_code,
       correlativo: String(invoice.correlative_number),
       fechaEmision: fecha,
       horaEmision: hora,
-      moneda: "PEN",
-      igv: Number((invoice.igv_total || 0).toFixed(2)),
-      icbper: 0,
-      emisor: { ...this.buildEmisor(config), sucursal: "01" },
-      cliente: this.buildCliente(invoice),
-      totales: this.buildTotales(invoice),
-      productos: this.buildProductos(invoice.items),
-    };
-  }
-
-  private buildNotaDebitoPayload(
-    config: FactConfig,
-    invoice: SunatInvoiceInput,
-  ): Record<string, unknown> {
-    const { fecha, hora } = formatEmissionDate(invoice.created_at);
-    const refDocType = invoice.reference_document_type || "boleta";
-    const codigoMotivo = invoice.reference_reason || "02";
-
-    return {
-      tipoComprobante: "08",
       codigoMotivo,
-      descripcionMotivo: getNDReason(codigoMotivo),
-      tipoComprobanteRef: mapCodigoTipoDocumento(refDocType),
-      serieRef: invoice.reference_series || "",
-      correlativoRef: String(invoice.reference_correlative ?? ""),
-      serie: invoice.series_code,
-      correlativo: String(invoice.correlative_number),
-      fechaEmision: fecha,
-      horaEmision: hora,
-      moneda: "PEN",
-      igv: Number((invoice.igv_total || 0).toFixed(2)),
+      descripcionMotivo: esCredito
+        ? getNCReason(codigoMotivo)
+        : getNDReason(codigoMotivo),
+      // Nombres verificados contra la API: con `serieRef`/`correlativoRef`
+      // (lo que usaba este adapter) responde 400 "field is required".
+      tipoComprobanteRef: tryMapCodigoTipoDocumento(refDocType) ?? "03",
+      serieComprobanteRef: invoice.reference_series || "",
+      correlativoComprobanteRef: String(invoice.reference_correlative ?? ""),
+      igv: round2(invoice.igv_total || 0),
       icbper: 0,
-      emisor: { ...this.buildEmisor(config), sucursal: "01" },
-      cliente: this.buildCliente(invoice),
-      totales: this.buildTotales(invoice),
+      emisor: this.buildEmisorNota(config),
+      cliente: this.buildClienteNota(invoice),
+      totales: this.buildTotalesNota(invoice),
       productos: this.buildProductos(invoice.items),
     };
   }
+}
 
-  private buildResumenSerie(date: Date = new Date()): string {
-    const fecha = date.toLocaleDateString("en-CA", { timeZone: "America/Lima" });
-    return fecha.replace(/-/g, "");
-  }
+// ---------------------------------------------------------------------------
+// Utilidades
+// ---------------------------------------------------------------------------
 
-  private buildResumenAnulacionPayload(
-    config: FactConfig,
-    documentType: string,
-    seriesCode: string,
-    correlativeNumber: number,
-    reason: string,
-  ): Record<string, unknown> {
-    const today = new Date();
-    const fechaEnvio = today.toLocaleDateString("en-CA", {
-      timeZone: "America/Lima",
-    });
-    return {
-      tipoComprobante: "RA",
-      serie: this.buildResumenSerie(today),
-      correlativo: "1",
-      fechaReferencia: fechaEnvio,
-      fechaEnvio,
-      emisor: this.buildEmisor(config),
-      documentos: [
-        {
-          tipoComprobante: mapCodigoTipoDocumento(documentType),
-          serieComprobante: seriesCode,
-          correlativo: String(correlativeNumber),
-          razonBaja: reason || "Anulación de la operación",
-        },
-      ],
-    };
+const round2 = (n: number) => Number(n.toFixed(2));
+const round6 = (n: number) => Number(n.toFixed(6));
+
+/**
+ * Extrae el DigestValue del XML firmado. Es el hash que va en la representación
+ * impresa y en el décimo campo del QR de SUNAT.
+ *
+ * El tag llega SIN prefijo de namespace, así que buscar `<ds:DigestValue>`
+ * devuelve null siempre. Se acepta cualquier prefijo, o ninguno.
+ */
+export function extractDigestValue(xmlBase64: string | undefined): string | null {
+  if (!xmlBase64) return null;
+  try {
+    const xml = Buffer.from(xmlBase64, "base64").toString("utf8");
+    const match = xml.match(/<(?:\w+:)?DigestValue>([^<]*)<\/(?:\w+:)?DigestValue>/);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
   }
+}
+
+/**
+ * `faultCode` llega como "soap-env:Client.2800". Nos quedamos con el código
+ * SUNAT, que es lo que sirve para buscar el error en su catálogo.
+ */
+export function normalizeFaultCode(faultCode: string | undefined): string | null {
+  if (!faultCode || faultCode === "-") return faultCode === "-" ? "ERROR" : null;
+  const match = faultCode.match(/(\d{3,4})\s*$/);
+  return match?.[1] ?? faultCode;
 }

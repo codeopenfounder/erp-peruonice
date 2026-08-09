@@ -159,12 +159,18 @@ async function processSuccessfulCharge(charge: Record<string, unknown>) {
     // 2. Create invoice (boleta with card payment)
     let invoiceId: string | null = null;
 
+    // Un pago online no viene de ninguna caja física, así que se emite sobre la
+    // primera serie de boleta por código (B001 antes que B002). El `order` no es
+    // cosmético: con varias cajas, `limit(1)` sin ordenar devolvía una serie u
+    // otra según el plan de PostgREST, y el comprobante de un pago online podía
+    // caer en la serie de una caja distinta cada vez.
     const { data: series } = await adminClient
       .from("invoice_series")
       .select("id")
       .eq("tenant_id", link.tenant_id)
       .eq("document_type", "boleta")
       .eq("is_active", true)
+      .order("series_code", { ascending: true })
       .limit(1)
       .single();
 
@@ -183,7 +189,12 @@ async function processSuccessfulCharge(charge: Record<string, unknown>) {
       );
       const issueDate = `${peruNow.getFullYear()}-${String(peruNow.getMonth() + 1).padStart(2, "0")}-${String(peruNow.getDate()).padStart(2, "0")}`;
 
-      const { data: inv } = await adminClient
+      // `branch_id` NO va aquí: la columna no existe en `invoices` (la que sí se
+      // añadió es `products.branch_id`, migración 00015). PostgREST rechazaba el
+      // INSERT entero con 42703, el error no se comprobaba y **cada pago online
+      // se quedaba sin comprobante en silencio**, consumiendo además un
+      // correlativo de boleta que quedaba como hueco.
+      const { data: inv, error: invError } = await adminClient
         .from("invoices")
         .insert({
           tenant_id: link.tenant_id,
@@ -204,12 +215,18 @@ async function processSuccessfulCharge(charge: Record<string, unknown>) {
           payment_method: "card",
           currency: link.currency || "PEN",
           issue_date: issueDate,
-          branch_id: link.branch_id,
           notes: `Pago online Culqi - ${chargeId}`,
           created_at: now,
         })
         .select("id")
         .single();
+
+      if (invError) {
+        // Se registra y se sigue: la reserva ya está pagada y confirmarla importa
+        // más que el comprobante, que puede reemitirse. Lo que no es aceptable es
+        // que el fallo sea invisible, como lo era hasta ahora.
+        console.error("[culqi-webhook] No se pudo crear el comprobante:", invError);
+      }
 
       invoiceId = inv?.id || null;
 

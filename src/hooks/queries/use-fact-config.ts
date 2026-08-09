@@ -73,7 +73,12 @@ export function useCreateCashRegister() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: Record<string, unknown>) => createCashRegister(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["cash-registers"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["cash-registers"] });
+      // Crear una caja crea también sus series (B00n/F00n): sin esta
+      // invalidación la pestaña Series seguiría mostrando la lista anterior.
+      qc.invalidateQueries({ queryKey: ["invoice-series"] });
+    },
   });
 }
 

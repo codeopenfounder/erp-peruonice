@@ -3,13 +3,19 @@
 // --------------------------------------------------------------------------
 
 export type DocumentType = "factura" | "boleta" | "nota_credito" | "nota_debito";
-export type SeriesDocumentType = "factura" | "boleta";
+export type SeriesDocumentType =
+  | "factura"
+  | "boleta"
+  | "nota_credito_factura"
+  | "nota_credito_boleta"
+  | "nota_debito_factura"
+  | "nota_debito_boleta";
 export type CustomerDocumentType = "ruc" | "dni" | "ce" | "passport" | "sin_documento";
 export type InvoiceStatus = "draft" | "issued" | "sent_to_sunat" | "accepted" | "rejected" | "voided" | "pending_void";
 export type PaymentMethod = "cash" | "card" | "transfer" | "credit" | "mixed";
 export type CashMovementType = "sale" | "income" | "expense" | "refund" | "petty_cash_in";
 export type OpeningStatus = "open" | "closed";
-export type FactProvider = "apisunat";
+export type FactProvider = "apisunat" | "bilme";
 
 // --- Core Database Interfaces ---
 

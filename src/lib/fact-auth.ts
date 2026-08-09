@@ -6,6 +6,14 @@ export interface FactContext {
   userId: string;
   userName: string;
   cargo: string | null;
+  /**
+   * Identidad de la instalación que hace la petición (`X-POI-Device-Id`).
+   *
+   * Nullable a propósito: un POS que todavía no se ha actualizado no lo manda, y
+   * la sincronización tiene que seguir funcionando. Todo lo que dependa de él
+   * debe degradar, no fallar.
+   */
+  deviceId: string | null;
 }
 
 /**
@@ -76,5 +84,6 @@ export async function validateFactUser(
     userId,
     userName: profile.full_name,
     cargo: profile.cargo || null,
+    deviceId: request.headers.get("X-POI-Device-Id") || null,
   };
 }

@@ -11,6 +11,7 @@ import type {
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { broadcastStockUpdate, broadcastSupplyStockUpdate } from "@/lib/stock-broadcast";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -297,28 +298,25 @@ export async function createInventoryMovement(input: unknown) {
   // Get entity info
   let entityName = "";
   let entitySku = "";
-  let currentStock = 0;
   if (entity_type === "product") {
     const { data: product } = await supabase
       .from("products")
-      .select("name, sku, stock_quantity")
+      .select("name, sku")
       .eq("id", entity_id)
       .single();
     if (!product)
       return { success: false as const, error: "Producto no encontrado" };
     entityName = product.name;
     entitySku = product.sku;
-    currentStock = product.stock_quantity || 0;
   } else if (entity_type === "supply") {
     const { data: supply } = await supabase
       .from("supplies")
-      .select("name, sku, stock_quantity")
+      .select("name, sku")
       .eq("id", entity_id)
       .single();
     if (!supply) return { success: false as const, error: "Insumo no encontrado" };
     entityName = supply.name;
     entitySku = supply.sku;
-    currentStock = supply.stock_quantity || 0;
   }
 
   const resolvedBranchId = branch_id && branch_id.length > 0 ? branch_id : null;
@@ -340,15 +338,49 @@ export async function createInventoryMovement(input: unknown) {
 
   if (movError) return { success: false as const, error: movError.message };
 
-  // Update stock based on movement type
+  // Update stock based on movement type.
+  //
+  // Vía RPC, no read-modify-write. Este era el único camino de stock del sistema
+  // que leía `stock_quantity`, calculaba en JavaScript y escribía el resultado:
+  // dos movimientos simultáneos se pisaban, el UPDATE final ni siquiera
+  // comprobaba el error, y sobre un producto COMPUESTO escribía un número que el
+  // siguiente recálculo de receta pisaba de todas formas — las RPC sí resuelven
+  // ese caso.
   const isIncrease = movement_type === "income" || (movement_type as string) === "return";
-  const newStock = isIncrease ? currentStock + quantity : Math.max(0, currentStock - quantity);
-  const table = entity_type === "product" ? "products" : "supplies";
+  const rpcName =
+    entity_type === "product"
+      ? isIncrease
+        ? "fn_increment_stock"
+        : "fn_decrement_stock"
+      : isIncrease
+        ? "fn_increment_supply_stock"
+        : "fn_decrement_supply_stock";
+  const rpcArgs =
+    entity_type === "product"
+      ? { p_product_id: entity_id, p_quantity: quantity }
+      : { p_supply_id: entity_id, p_quantity: quantity };
 
-  await supabase
-    .from(table)
-    .update({ stock_quantity: newStock })
-    .eq("id", entity_id);
+  const { data: newStock, error: stockError } = await supabase.rpc(rpcName, rpcArgs);
+
+  if (stockError) {
+    // El movimiento ya quedó registrado: se avisa en vez de fingir que todo fue
+    // bien, que es lo que hacía el UPDATE sin comprobar.
+    console.error("[createInventoryMovement] stock RPC failed:", stockError.message);
+    return {
+      success: false as const,
+      error: `El movimiento se registró pero el stock no se pudo actualizar: ${stockError.message}`,
+    };
+  }
+
+  if (typeof newStock === "number") {
+    const broadcast =
+      entity_type === "product"
+        ? broadcastStockUpdate(tenantId, entity_id, newStock)
+        : broadcastSupplyStockUpdate(tenantId, entity_id, newStock);
+    void broadcast.catch((e) =>
+      console.error("[createInventoryMovement] broadcast error:", e),
+    );
+  }
 
   const entityLabel = entity_type === "product" ? "producto" : "insumo";
 

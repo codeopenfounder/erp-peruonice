@@ -12,8 +12,13 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SUNAT_STATUS_MAP, type SunatProviderResponse } from "./types";
 
-/** Tope de reenvíos automáticos antes de que el auto-retry del pull se rinda. */
-export const MAX_SUNAT_ATTEMPTS = 5;
+/**
+ * Re-export, no una segunda definición: el número vive en `policy.ts`, que no
+ * tiene dependencias y por eso sí puede importarlo un componente cliente. Este
+ * módulo arrastra el cliente admin de Supabase, y de ahí venía la copia literal
+ * que había en `components/ventas/invoice-columns.tsx`.
+ */
+export { MAX_SUNAT_ATTEMPTS } from "./policy";
 
 export async function persistSunatResult(
   invoiceId: string,

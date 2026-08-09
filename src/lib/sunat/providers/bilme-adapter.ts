@@ -31,6 +31,7 @@ import {
   uploadAndSign,
   type SunatDocumentKind,
 } from "../storage";
+import { extractSunatCode } from "../policy";
 import type {
   FactConfig,
   StatusResult,
@@ -210,8 +211,24 @@ export class BilmeAdapter implements SunatProvider {
       };
     }
 
+    // Sin correlativo NO se envía. El fallback que había aquí —`{ correlative: 1,
+    // referenceDate: hoy }`— parecía inofensivo porque el único llamante siempre lo
+    // pasa, pero se activaba justo en el caso peor: si la RPC del correlativo
+    // fallaba, la segunda baja del día publicaba el identificador
+    // `RA-AAAAMMDD-1` de la primera. SUNAT lo rechaza y el registro local queda
+    // apuntando a un resumen ajeno. Un correlativo inventado es peor que un error.
+    if (!summary || typeof summary.correlative !== "number" || !summary.referenceDate) {
+      return {
+        success: false,
+        ticket: null,
+        error:
+          "No se recibió el correlativo del resumen de bajas. El emisor debe numerarlo " +
+          "(RA-AAAAMMDD-N) y no puede inventarse: reutilizarlo produce rechazo de SUNAT.",
+      };
+    }
+
     const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Lima" });
-    const ref: SunatSummaryRef = summary ?? { correlative: 1, referenceDate: hoy };
+    const ref: SunatSummaryRef = summary;
 
     try {
       const call = await this.post("/Emission/EnviarResumen", config.api_token, {
@@ -969,13 +986,16 @@ export function extractDigestValue(xmlBase64: string | undefined): string | null
 }
 
 /**
- * `faultCode` llega como "soap-env:Client.2800". Nos quedamos con el código
- * SUNAT, que es lo que sirve para buscar el error en su catálogo.
+ * `faultCode` llega envuelto en la forma SOAP del proveedor. Nos quedamos con el
+ * código SUNAT, que es lo que sirve para buscarlo en su catálogo.
+ *
+ * La extracción vive en `lib/sunat/policy` y NO se reimplementa aquí: Billme usa
+ * dos separadores distintos —`a:Client.0103` al emitir y `ns0:0103` al consultar—
+ * y tener dos copias del regex ya produjo el fallo de reconocer uno y no el otro.
  */
 export function normalizeFaultCode(faultCode: string | undefined): string | null {
   if (!faultCode || faultCode === "-") return faultCode === "-" ? "ERROR" : null;
-  const match = faultCode.match(/(\d{3,4})\s*$/);
-  return match?.[1] ?? faultCode;
+  return extractSunatCode(faultCode) ?? faultCode;
 }
 
 /**

@@ -48,3 +48,6 @@ next-env.d.ts
 /test-results/
 /playwright-report/
 /.playwright-mcp/
+
+# Artefactos del CLI de Supabase (guarda el project-ref enlazado)
+/supabase/.temp/

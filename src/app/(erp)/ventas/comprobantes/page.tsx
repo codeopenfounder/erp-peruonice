@@ -26,6 +26,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getInvoiceColumns, isSunatStuck } from "@/components/ventas/invoice-columns";
+import {
+  SUNAT_AUTH_FAULTS,
+  SUNAT_AUTH_FAULT_REMEDY,
+  extractSunatCode,
+  isProviderAuthFault,
+} from "@/lib/sunat/policy";
 import { InvoiceDetailDialog } from "@/components/ventas/invoice-detail-dialog";
 import {
   useInvoices,
@@ -243,6 +249,25 @@ function ComprobantesContent() {
     (i) => i.sunat_ticket_status === "pending"
   ).length;
 
+  /**
+   * Rechazos que no hablan del comprobante sino de las credenciales del emisor.
+   *
+   * Van en su propio aviso, por encima del dead-letter, porque son de otra
+   * naturaleza: no afectan a un comprobante sino a TODOS a la vez, no se arreglan
+   * reintentando, y lo que hay que tocar no está en el ERP. Se agrupan por código
+   * —da igual que sean tres o trescientos, el problema es uno— y se muestra el
+   * remedio concreto en vez de un "revisa la configuración".
+   */
+  const authFaults = useMemo(() => {
+    const porCodigo = new Map<string, number>();
+    for (const inv of invoiceData?.data ?? []) {
+      if (!isProviderAuthFault(inv.sunat_response_code)) continue;
+      const code = extractSunatCode(inv.sunat_response_code);
+      if (code) porCodigo.set(code, (porCodigo.get(code) ?? 0) + 1);
+    }
+    return [...porCodigo.entries()].map(([code, count]) => ({ code, count }));
+  }, [invoiceData?.data]);
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -404,6 +429,43 @@ function ComprobantesContent() {
           </Select>
         )}
       </div>
+
+      {/* La emisión está caída para TODOS los comprobantes: SUNAT rechaza al
+          emisor, no al documento. Va antes que el resto de avisos porque mientras
+          esto siga así, lo demás es ruido. */}
+      {authFaults.length > 0 && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm">
+          <div className="flex items-start gap-3">
+            <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+            <div className="space-y-2">
+              <p className="font-medium text-destructive">
+                SUNAT está rechazando las credenciales del emisor. No se puede emitir
+                ningún comprobante hasta corregirlo.
+              </p>
+              {authFaults.map(({ code, count }) => (
+                <div key={code} className="space-y-1">
+                  <p className="text-foreground">
+                    <span className="font-mono text-xs">{code}</span>{" "}
+                    {SUNAT_AUTH_FAULTS[code] ?? "Error de credenciales"} —{" "}
+                    <strong>{count}</strong>{" "}
+                    {count === 1 ? "comprobante afectado" : "comprobantes afectados"}
+                  </p>
+                  {SUNAT_AUTH_FAULT_REMEDY[code] && (
+                    <p className="text-xs text-muted-foreground">
+                      {SUNAT_AUTH_FAULT_REMEDY[code]}
+                    </p>
+                  )}
+                </div>
+              ))}
+              <p className="text-xs text-muted-foreground">
+                No hace falta reintentar a mano: en cuanto se corrija, el sistema los
+                reenvía solo. Puedes comprobar el estado en Configuración › POI Fact,
+                con el botón «Verificar» — es una consulta y no emite nada.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Comprobantes que necesitan una decisión humana.
           El dead-letter y el ticket pendiente no tenían ninguna superficie: el

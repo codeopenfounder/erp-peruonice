@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { notifyModuleAction } from "@/actions/notifications";
-import { MAX_SUNAT_ATTEMPTS } from "@/lib/sunat/persist";
+import {
+  MAX_SUNAT_ATTEMPTS,
+  deadlineDaysFor,
+  isWithinSunatDeadline,
+  sunatDeadlineDate,
+} from "@/lib/sunat/policy";
 import type {
   InvoiceKPIs,
   InvoiceListItem,
@@ -145,13 +150,20 @@ export async function getInvoices(
   if (filters.cash_register_id) {
     query = query.eq("cash_register_id", filters.cash_register_id);
   }
-  // Los dos casos que exigen intervención: dead-letter del auto-retry y ticket de
-  // anulación sin resolver. `or()` porque son condiciones independientes.
+  // Los casos que exigen intervención humana. `or()` porque son condiciones
+  // independientes:
+  //   1. dead-letter del auto-retry (agotó los intentos),
+  //   2. ticket de anulación sin resolver,
+  //   3. cualquier comprobante `rejected`.
+  // El tercero se añadió porque el filtro se le escapaban los caducados: los siete
+  // comprobantes fuera de plazo tienen `sunat_attempts = 0` —nunca llegaron al
+  // tope, simplemente nadie los reintentó— así que no aparecían por ninguna de las
+  // dos primeras vías. Un rechazo siempre necesita a alguien; el plazo lo calcula
+  // después la tabla, que sí puede resolver la serie.
   if (filters.sunat_problems) {
-    query = query
-      .or(
-        `and(sunat_attempts.gte.${MAX_SUNAT_ATTEMPTS},status.in.(issued,rejected,sent_to_sunat)),sunat_ticket_status.eq.pending`,
-      );
+    query = query.or(
+      `and(sunat_attempts.gte.${MAX_SUNAT_ATTEMPTS},status.in.(issued,rejected,sent_to_sunat)),sunat_ticket_status.eq.pending,status.eq.rejected`,
+    );
   }
 
   // Date range (Peru TZ = UTC-5)
@@ -320,7 +332,9 @@ export async function retrySunatFromErp(invoiceId: string) {
 
   const { data: invoice } = await supabase
     .from("invoices")
-    .select("id, status, series_id, correlative_number, document_type")
+    .select(
+      "id, status, series_id, correlative_number, document_type, issue_date, created_at, invoice_series(series_code)",
+    )
     .eq("id", invoiceId)
     .eq("tenant_id", tenantId)
     .single();
@@ -332,6 +346,26 @@ export async function retrySunatFromErp(invoiceId: string) {
     return {
       success: false as const,
       error: `Un comprobante en estado "${invoice.status}" no se reenvía a SUNAT.`,
+    };
+  }
+
+  // Corte por plazo legal, ANTES de resetear el contador. Sin esto, el rescate
+  // manual de un comprobante caducado resetea `sunat_attempts`, vuelve a fallar y
+  // deja el mismo estado de partida, gastando una llamada al proveedor y
+  // sugiriendo que insistir sirve de algo.
+  const seriesCode = (
+    invoice.invoice_series as unknown as { series_code?: string } | null
+  )?.series_code;
+  const emitido = invoice.issue_date ?? invoice.created_at;
+  if (!isWithinSunatDeadline(emitido, seriesCode)) {
+    return {
+      success: false as const,
+      error:
+        `Este comprobante está fuera del plazo legal de envío ` +
+        `(${deadlineDaysFor(seriesCode)} días calendario desde el día siguiente a la emisión; ` +
+        `venció el ${sunatDeadlineDate(emitido, seriesCode)}). ` +
+        `SUNAT lo rechazaría con el código 2600 y ya perdió la calidad de comprobante de pago. ` +
+        `La salida es contable, no técnica: consúltalo con tu contador.`,
     };
   }
 

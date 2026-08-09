@@ -2,8 +2,14 @@
 // Identidad y tenant — los tres tipos que el ERP usa de verdad
 // --------------------------------------------------------------------------
 //
-// ⚠️ ESTE FICHERO NO ESTÁ GENERADO. No lo produce `supabase gen types` y no
-//    existe ningún script `db:types` en el proyecto: está escrito a mano.
+// ⚠️ ESTE FICHERO NO ESTÁ GENERADO: está escrito a mano.
+//
+//    Lo generado vive en `@/types/supabase` y se produce con `npm run db:types`
+//    (`supabase gen types typescript --project-id ctlvfkiwpmyljeofgitz`). Son
+//    ficheros distintos a propósito: mezclarlos fue lo que permitió que esto se
+//    quedara 37 migraciones por detrás sin que nadie lo notara. Si necesitas la
+//    forma real de una tabla, tírala de `Database["public"]["Tables"]` de
+//    `@/types/supabase`, nunca de aquí.
 //
 // Por qué se podó
 // ---------------

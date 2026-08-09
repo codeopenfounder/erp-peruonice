@@ -176,6 +176,11 @@ export interface FactConfig {
   is_production: boolean;
   is_active: boolean;
   detraction_account: string | null;
+  /**
+   * Declarar cortesías y adicionales como operación gratuita ante SUNAT
+   * (migración 00041, por defecto `false`).
+   */
+  emit_free_lines: boolean;
   created_at: string;
   updated_at: string;
 }

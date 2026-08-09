@@ -25,6 +25,13 @@ export const factConfigSchema = z.object({
     .regex(/^[\d-]{0,30}$/, "Solo números y guiones")
     .optional()
     .or(z.literal("")),
+  /**
+   * Declarar cortesías y adicionales como operación gratuita ante SUNAT.
+   *
+   * Opcional para no romper a quien guarde sin el campo (el POS no lo manda). El
+   * valor por defecto lo pone la columna, que es `false` desde la migración 00041.
+   */
+  emit_free_lines: z.boolean().optional(),
 });
 
 export type FactConfigSchemaType = z.infer<typeof factConfigSchema>;

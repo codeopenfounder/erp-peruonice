@@ -15,12 +15,33 @@
  * Verificado contra la API real.
  */
 
+import {
+  SUNAT_AUTH_FAULTS,
+  extractSunatCode,
+  isProviderAuthFault,
+} from "./policy";
+
 export type SunatEnvironment = "development" | "production";
 
 export interface TokenVerification {
   valid: boolean;
   environment: SunatEnvironment | null;
   message: string;
+  /**
+   * Problema con las credenciales SOL del emisor registradas en el proveedor.
+   *
+   * Es independiente del token: el token puede ser perfectamente válido y aun así
+   * no poderse emitir nada, porque quien rechaza es SUNAT y lo que rechaza es el
+   * usuario SOL con el que el proveedor envía en nombre de la empresa.
+   *
+   * Existe porque esta función daba verde en ese caso. `ConsultarCdr` responde
+   * HTTP 400 con `faultCode` tanto cuando el comprobante consultado no existe
+   * —lo esperado, porque se consulta uno inventado— como cuando SUNAT no
+   * reconoce al usuario, y sólo se miraba el código HTTP. Comprobado en
+   * producción el 2026-08-09: el botón decía "Token válido, de una empresa de
+   * PRODUCCIÓN" mientras SUNAT devolvía `0103` y ninguna boleta podía emitirse.
+   */
+  solWarning?: string;
 }
 
 const BILME_BASE = "https://www.api.billmeperu.com/api/v1";
@@ -62,8 +83,12 @@ export async function verifyBilmeToken(
       signal: controller.signal,
     });
 
-    const body = (await res.json().catch(() => null)) as { message?: string } | null;
+    const body = (await res.json().catch(() => null)) as {
+      message?: string;
+      data?: { faultCode?: string; faultDescription?: string } | null;
+    } | null;
     const message = body?.message ?? "";
+    const faultCode = body?.data?.faultCode ?? "";
 
     if (res.status === 404) {
       return {
@@ -84,6 +109,26 @@ export async function verifyBilmeToken(
 
     if (res.status === 401) {
       return { valid: false, environment: null, message: message || "Token no autorizado." };
+    }
+
+    // El token sirve —Billme lo aceptó y llegó a hablar con SUNAT—, pero SUNAT
+    // puede estar rechazando al emisor. Ese fallo no se ve emitiendo un
+    // comprobante de prueba: se ve aquí, sin emitir nada.
+    if (isProviderAuthFault(faultCode)) {
+      const bare = extractSunatCode(faultCode)!;
+      return {
+        valid: true,
+        environment: "production",
+        message:
+          "Token válido, de una empresa de PRODUCCIÓN. Los comprobantes se emiten con validez fiscal ante SUNAT.",
+        solWarning:
+          `Pero SUNAT rechaza las credenciales del emisor (${bare}: ` +
+          `${SUNAT_AUTH_FAULTS[bare]}). Con esto NO se puede emitir nada, por muy ` +
+          `correcto que sea el comprobante. Revisa el Usuario SOL y la Clave SOL de ` +
+          `la empresa en el panel del proveedor: SUNAT espera el usuario secundario ` +
+          `precedido del RUC (por ejemplo 20613509446MIUSUARIO), y ese usuario debe ` +
+          `existir y tener el perfil de envío de comprobantes electrónicos.`,
+      };
     }
 
     return {

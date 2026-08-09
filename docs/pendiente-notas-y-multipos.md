@@ -9,13 +9,15 @@ segunda tanda, tras el corte del proveedor de facturación a **Billme producció
 |---|---|
 | Migración `00041` | ✅ aplicada y verificada en producción |
 | Proveedor SUNAT | ✅ `fact_config.provider = bilme`, token de producción verificado |
-| `poi-erp` | ✅ commiteado y empujado · ⏳ **PR #4 abierto, sin mergear ni desplegar** |
-| `poi-fact` **1.0.4** | ✅ compilado, publicado, enlazado y `main` empujado |
-| `poi-lector` | ✅ iconos del PWA arreglados y `main` empujado |
+| `poi-erp` | ✅ **desplegado** — PR #4 mergeado (`0bc4abe`), verificado contra `erp.peruonice.com` |
+| `poi-fact` **1.0.4** | ✅ descargable desde el ERP, con el SHA-256 servido idéntico al compilado |
+| `poi-lector` | ✅ **desplegado** — `lector.peruonice.com` sirve los tres iconos nuevos y el manifiesto los declara |
 
-Esta tanda **no toca la base de datos**: ni migración ni columna nueva. El único
-cambio de datos ya está hecho (`fact_config.provider` → `bilme`), así que el PR #4
-se puede desplegar en cualquier orden.
+Esta tanda **no tocó la base de datos**: ni migración ni columna nueva. El único
+cambio de datos (`fact_config.provider` → `bilme`) se hizo aparte.
+
+**No queda nada de esta tanda por desplegar.** Lo que sigue son cosas no
+implementadas o acciones humanas.
 
 **Lo único que bloquea la emisión: la Clave SOL** (punto 0). Todo lo demás de la
 cadena está verificado — certificado, payload, firma, usuario y permisos.

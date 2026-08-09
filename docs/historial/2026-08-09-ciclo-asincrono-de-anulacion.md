@@ -344,7 +344,127 @@ alterar el último dígito o el prefijo los rechaza.
 
 ---
 
+## Tres defectos que encontró la propia verificación
+
+Las pruebas no confirmaron lo escrito: encontraron cosas.
+
+### 1. `\b98\b` casaba con un importe
+
+`isTicketInProgress` reconocía «en proceso» también por el código 98, con
+`/\b98\b/`. El punto decimal es un límite de palabra, así que **`"monto 0.98"`
+casaba**. Un resumen ACEPTADO cuya descripción llevara un importe terminado en 98
+se habría leído como «en proceso», se habría seguido consultando hasta agotar
+`poll_attempts` y habría acabado marcado `failed` — dejando en `pending_void` un
+comprobante que SUNAT sí dio de baja. Exactamente el error que el orden de
+precedencia de `checkTicket` pretende evitar, cometido por el otro lado.
+
+Ahora se exige un 98 con **forma de código**: no pegado a otro dígito ni a un
+separador decimal. `"98"`, `"statusCode 98"` y `"código: 98"` casan; `"0.98"`,
+`"980"`, `"1980"` y `"1,98"` no.
+
+### 2. Las notificaciones desde API routes nunca se insertaban
+
+`notifyModuleAction` usaba siempre el cliente con cookies. **Todas** las policies de
+`notifications`, `profiles` y `user_permissions` son `TO authenticated` y no hay
+ninguna para `anon`, así que desde una API route —donde no hay cookie de sesión de
+Supabase— `getModuleUsers` devolvía lista vacía y RLS bloqueaba el INSERT. La
+notificación no fallaba ruidosamente: **no llegaba a existir**.
+
+Lo sufrían tres llamadores, dos de ellos anteriores a esta sesión:
+
+| Llamador | Estado |
+|---|---|
+| Sobreventa en `/api/fact/sync/push` | roto desde que se escribió (00040) |
+| `notifyLowStockPush` — su propio comentario dice "called from API routes" | roto |
+| Rechazo del ticket en `poll-summaries` | lo habría estado |
+
+Confirmado contra la base: las 9 notificaciones de las últimas horas vienen todas de
+**server actions** con sesión de navegador (usuario creado, servicio creado, cajero
+asignado). No hay ni una originada en una API route en toda la tabla.
+
+Arreglado con `asSystem: true`, que usa el cliente admin. Y de paso: un `actorId`
+vacío o `"system"` —lo que pasaban `notifyLowStockPush` y el webhook de Culqi— es un
+uuid inválido que **reventaba el INSERT completo con 22P02**, así que se perdían
+también las notificaciones de los demás destinatarios.
+
+### 3. `isFreeLine` / `isDroppedLine` no eran exportables
+
+Se exportan ahora, por el mismo motivo que `extractDigestValue` y
+`normalizeFaultCode`: son decisiones que hay que poder comprobar sin levantar media
+aplicación.
+
+---
+
+## Un comprobante atascado apareció solo, en producción, durante la prueba
+
+A las **15:36:45 UTC del 2026-08-09**, mientras se verificaba la UI, el POS empujó
+una boleta real de **S/ 1.00** (`B001-00000307`). SUNAT la rechazó con el mensaje ya
+conocido —*«Esta empresa no tiene autorización para emitir documentos en el entorno
+de producción»*— y los reintentos la dejaron en `sunat_attempts = 6`.
+
+Con eso cruzó el umbral y **quedó invisible en el ERP desplegado**: `autoRetrySunat`
+filtra `status = 'issued'` y ella está en `rejected`, así que el bucle automático no
+la mira; y sin la superficie nueva, la página de comprobantes no tenía dónde
+mostrarla ni forma de reenviarla.
+
+No hizo falta inventar el escenario del dead-letter: ocurrió por su cuenta el mismo
+día, y la UI nueva lo detectó y lo ofreció resolver. También es el recordatorio de
+que el bloqueante de negocio es real y está activo: hoy cada emisión se rechaza.
+
+---
+
 ## Evidencia ejecutada
+
+### Baterías de lógica (scratchpad, con Supabase y `fetch` sustituidos)
+
+Se comprueba lo que la UI no puede alcanzar: los estados del ticket sólo se recorren
+cuando SUNAT responde, y en producción no hay ni un resumen pendiente.
+
+| Batería | Qué cubre | Resultado |
+|---|---|---|
+| `logic-suite` | checksum del RUC (incluidas las ramas `remainder 10/11`), catálogos 07/05/16, detección de línea gratuita con el interruptor en los dos estados, mapeo de «en proceso», valor referencial, aritmética del IGV referencial | **90 / 90** |
+| `poller-suite` | payload de `ConsultarEstadoTicket`, precedencia del veredicto (fault > en proceso > CDR > pending), archivado del CDR, las cuatro ramas del poller (aceptado, rechazado, en proceso, tope agotado), cortes tempranos, fallo del UPDATE | **50 / 50** |
+| `schema-suite` | `factConfigSchema` real, el que corre el resolver del formulario | **13 / 13** |
+| `movement-suite` | cadena de resolución de sede, caché, sede explícita, fallo legible sin sede, propagación del error del INSERT | **23 / 23** |
+
+Un detalle de método: el formulario de configuración valida en submit, así que
+comprobar el RUC desde el navegador habría exigido **enviar el formulario contra la
+base de producción con un POS vendiendo**. Eso no es una prueba, es un riesgo: se
+comprobó el mismo `factConfigSchema.safeParse` que usa el resolver.
+
+### UI real, con Playwright
+
+Contra el servidor de desarrollo apuntando a producción, **sin una sola escritura**:
+
+- La página de comprobantes carga sin errores ni avisos de consola.
+- El filtro «Con problemas SUNAT» —la cadena `or(and(sunat_attempts.gte.5,status.in.(…)),sunat_ticket_status.eq.pending)`,
+  que es la sintaxis de PostgREST más frágil que se escribió— parsea y **selecciona
+  exactamente el único comprobante problemático de los 279**. Es reversible.
+- Badges: `Atascado` con 5 y con 7 intentos, **no** con 4 (la frontera), `Ticket
+  pendiente` sólo con el ticket en `pending` y no con `completed` ni `failed`.
+- `Anulación pendiente` se pinta: era el estado que llevaba desde la migración 00001
+  en el CHECK, con badge en la UI, y que nadie escribía.
+- Banner con recuento y concordancia correcta en singular y plural.
+- «Reintentar SUNAT» aparece en `issued`/`rejected`/`sent_to_sunat` y **no** en
+  `accepted`, `voided` ni `pending_void`; la etiqueta lleva el nº de intentos.
+- «Consultar estado de anulación» aparece **sólo** con ticket pendiente.
+- Las dos acciones ejecutadas de verdad: `Reenviando a SUNAT… → Comprobante no
+  encontrado` (guard de no-encontrado, sin escritura ni llamada a SUNAT) y
+  `Consultando SUNAT… → No hay anulaciones esperando respuesta de SUNAT`
+  (server action + permiso + poller + corte temprano).
+- Todas las server actions responden 200; ninguna excepción en el log.
+- El instalador se descarga: HTTP 200, 4 184 872 bytes, cabecera `MZ` — binario, no
+  el HTML de login. Es la comprobación del matcher de `middleware.ts` que ya falló
+  una vez.
+- Las seis páginas cuyas acciones se tocaron siguen respondiendo 200.
+
+Los estados que producción no tiene (`pending_void`, atascados sintéticos) se
+alcanzaron con un andamio temporal en `getInvoices` tras `POI_UI_FIXTURES`, retirado
+al terminar y verificado por `grep` y `git status`.
+
+Y se comprobó al cerrar que la sesión **no escribió nada**: 0 resúmenes, 0
+`sunat_summary_items`, 0 movimientos de inventario nuevos, `fact_config` sin tocar
+desde el día anterior, y `B001-00000307` con los mismos 6 intentos que tenía.
 
 ```
 kronos-fact/src-tauri $ cargo test

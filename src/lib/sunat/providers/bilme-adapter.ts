@@ -927,7 +927,7 @@ const round6 = (n: number) => Number(n.toFixed(6));
  * lo pone el servidor a partir de `supplies.cost_price` (adicional) o
  * `invoice_items.original_unit_price` (cortesía).
  */
-function isFreeLine(item: SunatInvoiceItemInput): boolean {
+export function isFreeLine(item: SunatInvoiceItemInput): boolean {
   return (
     item.total === 0 &&
     item.subtotal === 0 &&
@@ -944,7 +944,7 @@ function isFreeLine(item: SunatInvoiceItemInput): boolean {
  * SUNAT. Con ellas encendidas, sólo se descarta lo que está a cero **sin** valor
  * referencial, que no es declarable de ninguna forma.
  */
-function isDroppedLine(item: SunatInvoiceItemInput, emitFreeLines: boolean): boolean {
+export function isDroppedLine(item: SunatInvoiceItemInput, emitFreeLines: boolean): boolean {
   if (item.total !== 0 || item.subtotal !== 0) return false;
   if (!emitFreeLines) return true;
   return !isFreeLine(item);
@@ -997,6 +997,23 @@ export function isTicketInProgress(description: string | null | undefined): bool
     d.includes("aún no ha terminado") ||
     d.includes("aun no ha terminado") ||
     d.includes("procesando") ||
-    /\b98\b/.test(d)
+    IN_PROGRESS_CODE.test(d)
   );
 }
+
+/**
+ * Un 98 con forma de CÓDIGO, no cualquier 98 dentro de un número.
+ *
+ * `\b98\b` parecía suficiente y no lo es: casa con `"monto 0.98"`, porque el punto
+ * es un límite de palabra. Un resumen ACEPTADO cuya descripción llevara un importe
+ * terminado en 98 se habría leído como "en proceso", se habría seguido consultando
+ * hasta agotar `poll_attempts` y habría acabado marcado `failed` — dejando en
+ * `pending_void` un comprobante que SUNAT sí dio de baja. Exactamente el error que
+ * el orden de precedencia de `checkTicket` pretende evitar, cometido por el otro
+ * lado.
+ *
+ * Se exige que el 98 no esté pegado a otro dígito ni a un separador decimal:
+ * `"98"`, `"statusCode 98"` y `"código: 98"` casan; `"0.98"`, `"980"`, `"1980"` y
+ * `"1,98"` no.
+ */
+const IN_PROGRESS_CODE = /(?:^|[^\d.,])98(?:$|[^\d.,])/;

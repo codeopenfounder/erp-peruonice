@@ -1354,6 +1354,13 @@ export async function POST(request: Request) {
           resourceType: "product",
           resourceId: oversells[0].entity_id,
           type: "warning",
+          // El push es una API route autenticada por Bearer, sin cookie de
+          // Supabase. Todas las policies de `notifications`, `profiles` y
+          // `user_permissions` son `TO authenticated` y no hay ninguna para `anon`,
+          // así que con el cliente de cookies esta notificación NUNCA se insertaba:
+          // `getModuleUsers` devolvía vacío y RLS bloqueaba el INSERT. La
+          // sobreventa quedaba sólo en el log del servidor.
+          asSystem: true,
         });
       } catch (notifyErr) {
         console.error("[sync-push] No se pudo notificar la sobreventa:", notifyErr);

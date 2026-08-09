@@ -307,6 +307,10 @@ async function notifySummaryProblem(
       title,
       message,
       type: "warning",
+      // Imprescindible: esto corre dentro de `/api/fact/sync/pull`, donde no hay
+      // cookie de sesión. Con el cliente de cookies el INSERT lo bloquea RLS y la
+      // notificación no llega a existir.
+      asSystem: true,
     });
   } catch (err) {
     console.error("[poll-summaries] No se pudo notificar:", err);

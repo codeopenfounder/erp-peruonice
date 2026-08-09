@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 // ---------------------------------------------------------------------------
 // Get notifications for current user (cursor-based pagination)
@@ -102,7 +104,7 @@ export async function markAllNotificationsRead() {
 // Internal helper: get all users with given modules + owners
 // ---------------------------------------------------------------------------
 async function getModuleUsers(
-  supabase: Awaited<ReturnType<typeof createClient>>,
+  supabase: SupabaseClient,
   tenantId: string,
   moduleCodes: string[],
 ): Promise<string[]> {
@@ -189,13 +191,15 @@ export async function notifyLowStockPush(params: {
 
   await notifyModuleAction({
     tenantId: params.tenantId,
-    actorId: "", // system-generated
+    actorId: "", // system-generated: no se añade a los destinatarios
     moduleCodes: INVENTORY_MODULES,
     title: "Stock bajo",
     message: `"${params.productName}" tiene ${params.currentStock} unidades (mínimo: ${params.minStock})`,
     resourceType: params.resourceType,
     resourceId: params.resourceId,
     type: "warning",
+    // Se llama desde API routes, donde no hay cookie de sesión.
+    asSystem: true,
   });
 }
 
@@ -211,13 +215,32 @@ export async function notifyModuleAction(params: {
   resourceType?: string;
   resourceId?: string;
   type?: "info" | "warning" | "success" | "error";
+  /**
+   * Usar el cliente admin en vez del de cookies.
+   *
+   * Obligatorio cuando quien notifica es una API route o un proceso de fondo, no
+   * una server action con sesión del navegador. **Todas** las policies de
+   * `notifications`, `profiles` y `user_permissions` son `TO authenticated` y no
+   * hay ninguna para `anon`: sin cookie de sesión, `getModuleUsers` devuelve lista
+   * vacía y el INSERT lo bloquea RLS. Es decir, la notificación no fallaba
+   * ruidosamente — simplemente no existía.
+   *
+   * Lo sufrían la notificación de sobreventa de `/api/fact/sync/push` y
+   * `notifyLowStockPush`, cuyo propio comentario dice "called from API routes".
+   */
+  asSystem?: boolean;
 }) {
-  const supabase = await createClient();
+  const supabase = params.asSystem
+    ? createAdminClient()
+    : ((await createClient()) as unknown as SupabaseClient);
 
   const userIds = await getModuleUsers(supabase, params.tenantId, params.moduleCodes);
 
   const allUserIds = new Set(userIds);
-  allUserIds.add(params.actorId);
+  // `notifications.user_id` es un uuid con FK: un actorId vacío —lo que pasa
+  // `notifyLowStockPush` como "system-generated"— reventaba el INSERT COMPLETO con
+  // 22P02, así que se perdían también las notificaciones de los demás usuarios.
+  if (params.actorId) allUserIds.add(params.actorId);
 
   const notifications = [...allUserIds].map((userId) => ({
     tenant_id: params.tenantId,
@@ -229,10 +252,15 @@ export async function notifyModuleAction(params: {
     resource_id: params.resourceId || null,
   }));
 
-  if (notifications.length > 0) {
-    const { error } = await supabase.from("notifications").insert(notifications);
-    if (error) {
-      console.error("[notifyModuleAction] insert error:", error);
-    }
+  if (notifications.length === 0) {
+    console.warn(
+      `[notifyModuleAction] "${params.title}": ningún destinatario para los módulos ${params.moduleCodes.join(", ")}`,
+    );
+    return;
+  }
+
+  const { error } = await supabase.from("notifications").insert(notifications);
+  if (error) {
+    console.error("[notifyModuleAction] insert error:", error);
   }
 }

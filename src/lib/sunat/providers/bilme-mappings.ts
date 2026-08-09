@@ -43,9 +43,42 @@ export function mapCodigoAfectacionIgv(taxType: string): string {
       return "30";
     case "gratuita":
     case "gratuito":
-      return "11";
+      return mapCodigoAfectacionGratuita("gravado");
     default:
       return "10";
+  }
+}
+
+/**
+ * Catálogo 07 SUNAT — código de GRATUIDAD, derivado de la afectación del bien.
+ *
+ * Una entrega sin contraprestación no se declara con el código oneroso del bien
+ * (10/20/30): tiene códigos propios, y cuál toca depende de si el bien es gravado,
+ * exonerado o inafecto.
+ *
+ * | Bien | Código | Descripción SUNAT |
+ * |---|---|---|
+ * | gravado | **15** | Gravado – Bonificaciones |
+ * | exonerado | 21 | Exonerado – Transferencia gratuita |
+ * | inafecto | 37 | Inafecto – Transferencia gratuita |
+ *
+ * `15` y no `11` (retiro por premio) ni `13` (retiro genérico): lo que hace el
+ * negocio es entregar algo gratis **acompañando a una venta**, que es literalmente
+ * una bonificación. Es además coherente con la NC motivo 08 del catálogo 09, que
+ * `note-effects.ts` ya modela como el único motivo que SACA stock.
+ *
+ * El tributo de la línea es siempre 9996 (GRA), independientemente del código:
+ * lo resuelve `mapCodigoTributo("gratuito")`.
+ */
+export function mapCodigoAfectacionGratuita(taxType: string): string {
+  switch (taxType) {
+    case "exonerado":
+      return "21";
+    case "inafecto":
+      return "37";
+    case "gravado":
+    default:
+      return "15";
   }
 }
 

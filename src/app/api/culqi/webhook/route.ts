@@ -319,13 +319,19 @@ async function processSuccessfulCharge(charge: Record<string, unknown>) {
       const { notifyModuleAction } = await import("@/actions/notifications");
       await notifyModuleAction({
         tenantId: link.tenant_id,
-        actorId: link.created_by || "system",
+        // `"system"` no es un uuid: como actor reventaba el INSERT completo con
+        // 22P02 y se perdía la notificación de TODOS los destinatarios. Vacío
+        // significa "sin actor" y ya no se añade a la lista.
+        actorId: link.created_by || "",
         moduleCodes: ["reservas.links", "ventas.comprobantes"],
         title: "Pago online recibido",
         message: `${link.customer_name} pago S/ ${link.amount} por ${link.description || "reserva"}`,
         resourceType: "payment_link",
         resourceId: paymentLinkId,
         type: "success",
+        // El webhook es PÚBLICO y sin sesión de ningún tipo: sin el cliente admin
+        // esta notificación nunca se insertaba.
+        asSystem: true,
       });
     } catch {
       // Non-critical

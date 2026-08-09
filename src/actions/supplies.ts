@@ -16,6 +16,7 @@ import type {
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { insertInventoryMovement } from "@/lib/inventory-movement";
 import { broadcastSupplyStockUpdate } from "@/lib/stock-broadcast";
 
 // ---------------------------------------------------------------------------
@@ -340,19 +341,29 @@ export async function createSupply(input: unknown) {
     );
   }
 
-  // Create initial stock movement if stock > 0
+  // Create initial stock movement if stock > 0. Ver el comentario gemelo en
+  // `products.createProduct`: el insumo ya existe con su stock, así que el fallo
+  // se avisa y no se deshace nada.
+  let stockMovementWarning: string | null = null;
   const initialStock = stock_quantity ?? 0;
   if (initialStock > 0) {
-    await supabase.from("inventory_movements").insert({
-      tenant_id: tenantId,
-      entity_type: "supply",
-      entity_id: supply.id,
-      quantity: initialStock,
-      movement_type: "income",
-      reason: "Stock inicial",
-      branch_id: branch_id || (await supabase.from("branches").select("id").eq("tenant_id", tenantId).limit(1).single()).data?.id,
-      created_by: userId,
-    });
+    const { error: movError } = await insertInventoryMovement(
+      supabase,
+      {
+        tenant_id: tenantId,
+        entity_type: "supply",
+        entity_id: supply.id,
+        quantity: initialStock,
+        movement_type: "income",
+        reason: "Stock inicial",
+        branch_id: branch_id,
+        created_by: userId,
+      },
+      { userId },
+    );
+    if (movError) {
+      stockMovementWarning = `${movError} El stock inicial quedó en el insumo pero no en el kardex.`;
+    }
   }
 
   void notifyModuleAction({
@@ -370,6 +381,7 @@ export async function createSupply(input: unknown) {
   return {
     success: true as const,
     supplyId: supply.id,
+    warning: stockMovementWarning ?? undefined,
   };
 }
 
@@ -532,20 +544,24 @@ export async function addSupplyStock(supplyId: string, input: unknown) {
     );
   }
 
-  // Create stock movement record
-  await supabase.from("inventory_movements").insert({
-    tenant_id: tenantId,
-    entity_type: "supply",
-    entity_id: supplyId,
-    quantity,
-    movement_type: "income",
-    reason: "Ingreso de stock",
-    notes: notes || null,
-    branch_id: supply.branch_id || (await supabase.from("branches").select("id").eq("tenant_id", tenantId).limit(1).single()).data?.id,
-    supplier_ruc: supplier_ruc || null,
-    invoice_code: invoice_code || null,
-    created_by: userId,
-  });
+  // Create stock movement record. El stock ya subió por RPC: el fallo se avisa.
+  const { error: movError } = await insertInventoryMovement(
+    supabase,
+    {
+      tenant_id: tenantId,
+      entity_type: "supply",
+      entity_id: supplyId,
+      quantity,
+      movement_type: "income",
+      reason: "Ingreso de stock",
+      notes: notes || null,
+      branch_id: supply.branch_id,
+      supplier_ruc: supplier_ruc || null,
+      invoice_code: invoice_code || null,
+      created_by: userId,
+    },
+    { userId },
+  );
 
   void notifyModuleAction({
     tenantId,
@@ -563,5 +579,6 @@ export async function addSupplyStock(supplyId: string, input: unknown) {
   return {
     success: true as const,
     message: "Stock actualizado exitosamente.",
+    warning: movError ?? undefined,
   };
 }

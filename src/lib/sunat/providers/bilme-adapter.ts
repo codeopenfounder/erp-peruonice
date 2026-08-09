@@ -39,10 +39,13 @@ import type {
   SunatProvider,
   SunatProviderResponse,
   SunatSummaryRef,
+  SunatSummaryType,
+  TicketResult,
   VoidResult,
 } from "../types";
 import {
   DEFAULT_CODIGO_CLASIFICACION,
+  mapCodigoAfectacionGratuita,
   mapCodigoAfectacionIgv,
   mapCodigoTipoPrecio,
   mapCodigoTributo,
@@ -324,6 +327,152 @@ export class BilmeAdapter implements SunatProvider {
     }
   }
 
+  /**
+   * Consulta del ticket de un resumen (RC/RA) — el paso que faltaba para que una
+   * anulación deje de estar sólo "recibida".
+   *
+   * Contrato verificado contra la documentación de Billme (2026-08-08):
+   *
+   *     POST /Emission/ConsultarEstadoTicket
+   *     { numDocEmisor, numTicket, tipoComprobante: "RC"|"RA", serie, correlativo }
+   *
+   * `serie` es el **AAAAMMDD** del identificador del resumen y `correlativo` el N
+   * dentro de esa fecha: exactamente las dos columnas que guarda
+   * `sunat_summaries` (`reference_date` y `correlative`).
+   *
+   * ⚠️ Billme NO documenta la respuesta de este endpoint — su tabla de
+   * `respuesta-de-consultas` mete `cdrBase64`, `xmlBase64` y `ticketNumber` en una
+   * sola tabla sin decir qué endpoint devuelve cuál. Por eso el mapeo de abajo se
+   * apoya únicamente en lo que el sobre garantiza y NO desempaqueta el ZIP del
+   * CDR para leer el `ResponseCode`: hacerlo exigiría un descompresor y, sobre
+   * todo, fiarse de una forma de respuesta no documentada. La referencia de SUNAT
+   * es que `getStatus` responde 0 = procesado (el contenido trae el CDR),
+   * 98 = en proceso, 99 = procesado con errores.
+   *
+   * Traducción, en orden de precedencia:
+   *   1. `faultCode` no vacío        → rejected  (passthrough del fault de SUNAT)
+   *   2. descripción "en proceso"/98 → pending   (heurística, ver abajo)
+   *   3. `cdrBase64` presente        → accepted  (SUNAT resolvió y entregó CDR)
+   *   4. nada de lo anterior         → pending   (todavía no hay veredicto)
+   *
+   * La heurística de (2) va ANTES de (3) a propósito: si algún día Billme
+   * devolviera el CDR del envío junto con un "en proceso", tratarlo como aceptado
+   * marcaría como anulado un comprobante que SUNAT aún no ha dado de baja. Ante la
+   * duda, `pending` sólo cuesta otra consulta en 2 minutos; `accepted` de más es
+   * un comprobante mal declarado.
+   */
+  async checkTicket(
+    config: FactConfig,
+    summaryType: SunatSummaryType,
+    summary: SunatSummaryRef,
+    ticket: string,
+  ): Promise<TicketResult> {
+    try {
+      const call = await this.post(
+        "/Emission/ConsultarEstadoTicket",
+        config.api_token,
+        {
+          numDocEmisor: config.ruc,
+          numTicket: ticket,
+          tipoComprobante: summaryType,
+          // Billme llama "serie" al AAAAMMDD del identificador del resumen, igual
+          // que en EnviarResumen.
+          serie: summary.referenceDate.replace(/-/g, ""),
+          correlativo: String(summary.correlative),
+        },
+      );
+
+      if (!call.data) {
+        // Sin sobre no hay veredicto: puede ser el proxy, el token o un ticket
+        // que Billme todavía no reconoce. Nunca se concluye nada de esto.
+        return {
+          status: "pending",
+          responseCode: null,
+          responseDesc: call.transportError ?? "Bilme no devolvió datos del ticket",
+          xmlUrl: null,
+          cdrUrl: null,
+        };
+      }
+
+      const data = call.data;
+
+      if (data.faultCode) {
+        return {
+          status: "rejected",
+          responseCode: normalizeFaultCode(data.faultCode) ?? "ERROR",
+          responseDesc: this.describeFailure(call),
+          xmlUrl: null,
+          cdrUrl: null,
+        };
+      }
+
+      const desc = data.description ?? null;
+      if (isTicketInProgress(desc)) {
+        return {
+          status: "pending",
+          responseCode: "98",
+          responseDesc: desc,
+          xmlUrl: null,
+          cdrUrl: null,
+        };
+      }
+
+      if (!data.cdrBase64) {
+        return {
+          status: "pending",
+          responseCode: null,
+          responseDesc: desc,
+          xmlUrl: null,
+          cdrUrl: null,
+        };
+      }
+
+      // Aceptado: se archiva el CDR (y el XML si viene) porque Billme los purga a
+      // los 40-90 días y son la única prueba legal de la baja.
+      let xmlUrl: string | null = null;
+      let cdrUrl: string | null = null;
+      try {
+        const path = `${config.tenant_id}/_summaries/${summaryType}-${summary.referenceDate.replace(/-/g, "")}-${summary.correlative}`;
+        cdrUrl = await uploadAndSign(
+          Buffer.from(data.cdrBase64, "base64"),
+          `${path}.cdr.zip`,
+          "application/zip",
+        );
+        const xmlBase64 = data.xmlDocument || data.xmlBase64;
+        if (xmlBase64) {
+          xmlUrl = await uploadAndSign(
+            Buffer.from(xmlBase64, "base64"),
+            `${path}.xml`,
+            "application/xml",
+          );
+        }
+      } catch (err) {
+        // Igual que en submit(): un fallo de Storage no invalida un veredicto
+        // bueno de SUNAT.
+        console.error("[BilmeAdapter.checkTicket] Falló la subida a Storage", err);
+      }
+
+      return {
+        status: "accepted",
+        responseCode: "0",
+        responseDesc: desc,
+        xmlUrl,
+        cdrUrl,
+      };
+    } catch (error) {
+      // Timeout o red: `pending`, no `rejected`. Un fallo de transporte no dice
+      // nada sobre lo que SUNAT decidió.
+      return {
+        status: "pending",
+        responseCode: null,
+        responseDesc:
+          error instanceof Error ? error.message : "Error de conexión con Bilme",
+        xmlUrl: null,
+        cdrUrl: null,
+      };
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Transporte
   // -------------------------------------------------------------------------
@@ -535,11 +684,18 @@ export class BilmeAdapter implements SunatProvider {
    * Los descuentos ya vienen aplicados dentro de `subtotal`/`total`, así que
    * `montoDescuento` va en 0: informarlo otra vez lo descontaría dos veces.
    */
-  private buildProductos(items: SunatInvoiceItemInput[]): unknown[] {
+  private buildProductos(
+    items: SunatInvoiceItemInput[],
+    emitFreeLines: boolean,
+  ): unknown[] {
     return items
-      .filter((item) => !(item.total === 0 && item.subtotal === 0))
+      .filter((item) => !isDroppedLine(item, emitFreeLines))
       .map((item, idx) => {
         const cantidad = item.quantity;
+        const gratuita = isFreeLine(item) && emitFreeLines;
+
+        if (gratuita) return this.buildProductoGratuito(item, idx);
+
         const valorUnitario = cantidad > 0 ? item.subtotal / cantidad : 0;
         const precioConIgv = cantidad > 0 ? item.total / cantidad : 0;
         const tributo = mapCodigoTributo(item.tax_type);
@@ -576,6 +732,70 @@ export class BilmeAdapter implements SunatProvider {
           ],
         };
       });
+  }
+
+  /**
+   * Línea de entrega gratuita: una cortesía o un adicional.
+   *
+   * Estructura que exige SUNAT y cómo la nombra Billme:
+   *
+   * | Concepto SUNAT | Campo Billme | Valor |
+   * |---|---|---|
+   * | `cac:Price/cbc:PriceAmount` | `precioUnitario` | **0** — no se cobró nada |
+   * | `AlternativeConditionPrice` + `PriceTypeCode 02` | `precioLista` + `codigoTipoPrecio` | valor referencial unitario **con** IGV |
+   * | `cbc:LineExtensionAmount` | `montoSinImpuesto` / `montoTotal` | valor referencial **sin** IGV × cantidad |
+   * | `TaxTotal` tributo 9996 (GRA) | `impuestos[0]` | IGV calculado sobre esa base |
+   * | Catálogo 07 de gratuidad | `codigoAfectacionIgv` | 15 / 21 / 37 según el bien |
+   *
+   * El valor referencial llega en `reference_value` y sale de
+   * `lib/sunat/reference-values`: `supplies.cost_price` para un adicional,
+   * `invoice_items.original_unit_price` para una cortesía. Se asume que INCLUYE
+   * IGV, igual que cualquier precio del sistema (convención peruana: los precios
+   * mostrados llevan el IGV dentro y el impuesto se extrae, nunca se añade).
+   */
+  private buildProductoGratuito(
+    item: SunatInvoiceItemInput,
+    idx: number,
+  ): Record<string, unknown> {
+    const cantidad = item.quantity;
+    const referencialConIgv = item.reference_value ?? 0;
+    const rate = Number(item.igv_rate) || 0;
+    const referencialSinIgv = rate > 0 ? referencialConIgv / (1 + rate / 100) : referencialConIgv;
+    const baseImponible = round2(referencialSinIgv * cantidad);
+    const igvMonto = round2(baseImponible * (rate / 100));
+    const tributo = mapCodigoTributo("gratuito");
+
+    return {
+      id: `p-${idx + 1}`,
+      unidades: cantidad,
+      codigoUnidad: mapCodigoUnidad(item.unit_of_measure),
+      nombre: item.description,
+      moneda: "PEN",
+      // Lo efectivamente cobrado: nada.
+      precioUnitario: 0,
+      // El valor referencial va aquí, y `codigoTipoPrecio: "02"` es lo que le dice
+      // a SUNAT que este importe NO es un precio sino una referencia.
+      precioLista: round6(referencialConIgv),
+      montoSinImpuesto: baseImponible,
+      montoImpuestos: igvMonto,
+      montoTotal: baseImponible,
+      montoIcbper: 0,
+      factorIcbper: 0,
+      montoDescuento: 0,
+      codigoTipoPrecio: "02",
+      codigoClasificacion: DEFAULT_CODIGO_CLASIFICACION,
+      impuestos: [
+        {
+          monto: igvMonto,
+          idCategoria: tributo.idCategoria,
+          porcentaje: rate,
+          codigoAfectacionIgv: mapCodigoAfectacionGratuita(item.tax_type),
+          codigoTributo: tributo.codigoTributo,
+          nombreTributo: tributo.nombreTributo,
+          codigoInterTributo: tributo.codigoInterTributo,
+        },
+      ],
+    };
   }
 
   /** Boleta y factura: 9 campos. */
@@ -639,7 +859,7 @@ export class BilmeAdapter implements SunatProvider {
       emisor: this.buildEmisor(config),
       cliente: this.buildCliente(invoice),
       totales: this.buildTotales(invoice),
-      productos: this.buildProductos(invoice.items),
+      productos: this.buildProductos(invoice.items, config.emit_free_lines === true),
     };
 
     if (hasDetraction) {
@@ -687,7 +907,7 @@ export class BilmeAdapter implements SunatProvider {
       emisor: this.buildEmisorNota(config),
       cliente: this.buildClienteNota(invoice),
       totales: this.buildTotalesNota(invoice),
-      productos: this.buildProductos(invoice.items),
+      productos: this.buildProductos(invoice.items, config.emit_free_lines === true),
     };
   }
 }
@@ -698,6 +918,37 @@ export class BilmeAdapter implements SunatProvider {
 
 const round2 = (n: number) => Number(n.toFixed(2));
 const round6 = (n: number) => Number(n.toFixed(6));
+
+/**
+ * ¿Es una línea entregada sin contraprestación?
+ *
+ * Se reconoce por importe cero **y** valor referencial presente. El valor
+ * referencial es lo que la distingue de una línea rota o de un ítem a 0 por error:
+ * lo pone el servidor a partir de `supplies.cost_price` (adicional) o
+ * `invoice_items.original_unit_price` (cortesía).
+ */
+export function isFreeLine(item: SunatInvoiceItemInput): boolean {
+  return (
+    item.total === 0 &&
+    item.subtotal === 0 &&
+    typeof item.reference_value === "number" &&
+    item.reference_value > 0
+  );
+}
+
+/**
+ * ¿Se descarta la línea del payload?
+ *
+ * Con las líneas gratuitas apagadas, se descarta todo lo de importe cero — que es
+ * el comportamiento histórico y la razón de que las cortesías no llegaran nunca a
+ * SUNAT. Con ellas encendidas, sólo se descarta lo que está a cero **sin** valor
+ * referencial, que no es declarable de ninguna forma.
+ */
+export function isDroppedLine(item: SunatInvoiceItemInput, emitFreeLines: boolean): boolean {
+  if (item.total !== 0 || item.subtotal !== 0) return false;
+  if (!emitFreeLines) return true;
+  return !isFreeLine(item);
+}
 
 /**
  * Extrae el DigestValue del XML firmado. Es el hash que va en la representación
@@ -726,3 +977,43 @@ export function normalizeFaultCode(faultCode: string | undefined): string | null
   const match = faultCode.match(/(\d{3,4})\s*$/);
   return match?.[1] ?? faultCode;
 }
+
+/**
+ * ¿La respuesta del ticket dice "todavía estoy procesando"?
+ *
+ * SUNAT devuelve el código 98 ("El proceso aún no ha terminado") mientras valida
+ * un resumen. Billme no documenta cómo lo expone, así que se reconoce por la
+ * descripción además de por el código. Es una heurística deliberada y conservadora:
+ * un falso positivo sólo provoca otra consulta dos minutos después, mientras que
+ * dar por aceptada una baja que SUNAT aún no aceptó deja un comprobante mal
+ * declarado. Cuando se confirme el formato real contra la API, esto se sustituye
+ * por la comprobación exacta.
+ */
+export function isTicketInProgress(description: string | null | undefined): boolean {
+  if (!description) return false;
+  const d = description.toLowerCase();
+  return (
+    d.includes("en proceso") ||
+    d.includes("aún no ha terminado") ||
+    d.includes("aun no ha terminado") ||
+    d.includes("procesando") ||
+    IN_PROGRESS_CODE.test(d)
+  );
+}
+
+/**
+ * Un 98 con forma de CÓDIGO, no cualquier 98 dentro de un número.
+ *
+ * `\b98\b` parecía suficiente y no lo es: casa con `"monto 0.98"`, porque el punto
+ * es un límite de palabra. Un resumen ACEPTADO cuya descripción llevara un importe
+ * terminado en 98 se habría leído como "en proceso", se habría seguido consultando
+ * hasta agotar `poll_attempts` y habría acabado marcado `failed` — dejando en
+ * `pending_void` un comprobante que SUNAT sí dio de baja. Exactamente el error que
+ * el orden de precedencia de `checkTicket` pretende evitar, cometido por el otro
+ * lado.
+ *
+ * Se exige que el 98 no esté pegado a otro dígito ni a un separador decimal:
+ * `"98"`, `"statusCode 98"` y `"código: 98"` casan; `"0.98"`, `"980"`, `"1980"` y
+ * `"1,98"` no.
+ */
+const IN_PROGRESS_CODE = /(?:^|[^\d.,])98(?:$|[^\d.,])/;

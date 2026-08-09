@@ -19,9 +19,30 @@ function loadDotEnvLocal(): Record<string, string> {
 }
 
 const env = loadDotEnvLocal();
-const PG_PASSWORD = "codeopentechfounder2025$";
-const TEST_EMAIL = "administracion@peruonice.com";
-const TEST_PASSWORD = "peruonice2026$";
+
+/**
+ * Credenciales de las pruebas — NUNCA literales en el código.
+ *
+ * Estaban escritas a mano aquí y en `auth.setup.ts`: la contraseña del superusuario
+ * de Postgres y la del administrador del ERP en producción, en un repositorio
+ * **público**. Ahora salen de `.env.local`, que está en `.gitignore`.
+ *
+ * Que ya no estén en el código NO las descompromete: el historial público las
+ * conserva. Hay que rotarlas — ver `docs/pendiente-notas-y-multipos.md`.
+ */
+function required(name: string): string {
+  const value = env[name] ?? process.env[name];
+  if (!value) {
+    throw new Error(
+      `Falta ${name}. Defínela en poi-erp/.env.local para poder correr los e2e.`,
+    );
+  }
+  return value;
+}
+
+const PG_PASSWORD = required("E2E_PG_PASSWORD");
+const TEST_EMAIL = required("E2E_TEST_EMAIL");
+const TEST_PASSWORD = required("E2E_TEST_PASSWORD");
 
 function pgClient() {
   return new Client({

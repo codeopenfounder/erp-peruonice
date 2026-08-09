@@ -8,6 +8,7 @@ import { getEntityMovements } from "./inventory-movements";
 import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
+import { insertInventoryMovement } from "@/lib/inventory-movement";
 import {
   broadcastAssignmentsChange,
   broadcastProductDelete,
@@ -421,9 +422,15 @@ export async function createProduct(input: unknown) {
   }
 
   // Create initial stock movement if stock > 0
+  //
+  // El producto ya existe y su stock ya está puesto, así que un fallo aquí no
+  // deshace la creación — pero tampoco se traga. Antes este INSERT podía fallar
+  // con 23502 (`branch_id` es NOT NULL y el fallback `.limit(1).single()` podía
+  // devolver undefined) y el producto quedaba con stock sin entrada en el kardex.
+  let stockMovementWarning: string | null = null;
   const initialStock = isComposite ? 0 : (stock_quantity ?? 0);
   if (initialStock > 0) {
-    await supabase.from("inventory_movements").insert({
+    const { error: movError } = await insertInventoryMovement(supabase, {
       tenant_id: tenantId,
       entity_type: "product",
       entity_id: product.id,
@@ -431,11 +438,14 @@ export async function createProduct(input: unknown) {
       movement_type: "income",
       reason: "Stock inicial",
       notes: invoice_code ? `Factura: ${invoice_code}` : null,
-      branch_id: inputBranchId || (await supabase.from("branches").select("id").eq("tenant_id", tenantId).limit(1).single()).data?.id,
+      branch_id: inputBranchId,
       supplier_ruc: supplier_ruc || null,
       invoice_code: invoice_code || null,
       created_by: userId,
     });
+    if (movError) {
+      stockMovementWarning = `${movError} El stock inicial quedó en el producto pero no en el kardex.`;
+    }
   }
 
   const label = isService ? "servicio" : "producto";
@@ -463,7 +473,11 @@ export async function createProduct(input: unknown) {
 
   revalidatePath("/inventario/productos");
   revalidatePath("/inventario/servicios");
-  return { success: true as const, productId: product.id };
+  return {
+    success: true as const,
+    productId: product.id,
+    warning: stockMovementWarning ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -668,21 +682,29 @@ export async function addProductStock(productId: string, input: unknown) {
     );
   }
 
-  // Create stock movement record
-  const { data: defaultBranch } = await supabase.from("branches").select("id").eq("tenant_id", tenantId).limit(1).single();
-  await supabase.from("inventory_movements").insert({
-    tenant_id: tenantId,
-    entity_type: "product",
-    entity_id: productId,
-    quantity,
-    movement_type: "income",
-    reason: "Ingreso de stock",
-    notes: notes || null,
-    branch_id: defaultBranch?.id,
-    supplier_ruc: supplier_ruc || null,
-    invoice_code: invoice_code || null,
-    created_by: userId,
-  });
+  // Create stock movement record.
+  //
+  // El stock ya subió (la RPC de arriba es irreversible desde aquí), así que un
+  // fallo al anotarlo se avisa en vez de abortar. La sede la resuelve el helper:
+  // el `.limit(1).single()` de antes ni ordenaba ni comprobaba nada, y con la
+  // columna `branch_id` en NOT NULL un undefined perdía el movimiento en silencio.
+  const { error: movError } = await insertInventoryMovement(
+    supabase,
+    {
+      tenant_id: tenantId,
+      entity_type: "product",
+      entity_id: productId,
+      quantity,
+      movement_type: "income",
+      reason: "Ingreso de stock",
+      notes: notes || null,
+      branch_id: null,
+      supplier_ruc: supplier_ruc || null,
+      invoice_code: invoice_code || null,
+      created_by: userId,
+    },
+    { userId },
+  );
 
   void notifyModuleAction({
     tenantId,
@@ -697,7 +719,11 @@ export async function addProductStock(productId: string, input: unknown) {
 
   revalidatePath("/inventario/productos");
   revalidatePath(`/inventario/productos/${productId}`);
-  return { success: true as const, message: "Stock actualizado exitosamente." };
+  return {
+    success: true as const,
+    message: "Stock actualizado exitosamente.",
+    warning: movError ?? undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------

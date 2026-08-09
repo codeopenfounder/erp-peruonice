@@ -1,9 +1,37 @@
 import { test, expect } from "@playwright/test";
 import { Client } from "pg";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 const PROMO_CODE = "TEST-E2E-01";
 const PROMO_NAME = "Descuento E2E 10%";
 const PROMO_NAME_EDITED = "Descuento E2E 15%";
+
+/**
+ * Contraseña del superusuario de Postgres — NUNCA literal en el código.
+ *
+ * Estaba escrita a mano aquí, y este repositorio es **público**. Que ya no esté no
+ * la descompromete: el historial la conserva. Hay que rotarla — ver el runbook en
+ * `docs/pendiente-notas-y-multipos.md`.
+ */
+function pgPassword(): string {
+  if (process.env.E2E_PG_PASSWORD) return process.env.E2E_PG_PASSWORD;
+
+  const envPath = path.resolve(__dirname, "..", ".env.local");
+  if (fs.existsSync(envPath)) {
+    for (const raw of fs.readFileSync(envPath, "utf-8").split(/\r?\n/)) {
+      const line = raw.trim();
+      const idx = line.indexOf("=");
+      if (idx > 0 && line.slice(0, idx).trim() === "E2E_PG_PASSWORD") {
+        return line.slice(idx + 1).trim();
+      }
+    }
+  }
+
+  throw new Error(
+    "Falta E2E_PG_PASSWORD. Defínela en poi-erp/.env.local para poder correr los e2e.",
+  );
+}
 
 const db = () =>
   new Client({
@@ -11,7 +39,7 @@ const db = () =>
     port: 5432,
     database: "postgres",
     user: "postgres",
-    password: "codeopentechfounder2025$",
+    password: pgPassword(),
     ssl: { rejectUnauthorized: false },
   });
 

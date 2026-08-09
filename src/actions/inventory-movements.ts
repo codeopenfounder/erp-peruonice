@@ -12,6 +12,7 @@ import type { PaginatedResult } from "@/types/shared";
 import { notifyModuleAction } from "./notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { broadcastStockUpdate, broadcastSupplyStockUpdate } from "@/lib/stock-broadcast";
+import { insertInventoryMovement } from "@/lib/inventory-movement";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -319,12 +320,16 @@ export async function createInventoryMovement(input: unknown) {
     entitySku = supply.sku;
   }
 
+  // `branch_id` llega vacío desde el formulario cuando el usuario no elige sede.
+  // Antes se forzaba a `null` y el INSERT reventaba con 23502 (la columna es NOT
+  // NULL): el error sí se comprobaba, pero el mensaje era el de PostgREST y no
+  // decía qué hacer. Ahora el helper resuelve la sede por la cadena habitual y
+  // sólo falla —con un motivo legible— si el tenant no tiene ninguna.
   const resolvedBranchId = branch_id && branch_id.length > 0 ? branch_id : null;
 
-  // Insert movement record
-  const { error: movError } = await supabase
-    .from("inventory_movements")
-    .insert({
+  const { error: movError } = await insertInventoryMovement(
+    supabase,
+    {
       tenant_id: tenantId,
       entity_type,
       entity_id,
@@ -334,9 +339,11 @@ export async function createInventoryMovement(input: unknown) {
       notes: notes || null,
       branch_id: resolvedBranchId,
       created_by: responsible_id || userId,
-    });
+    },
+    { userId },
+  );
 
-  if (movError) return { success: false as const, error: movError.message };
+  if (movError) return { success: false as const, error: movError };
 
   // Update stock based on movement type.
   //

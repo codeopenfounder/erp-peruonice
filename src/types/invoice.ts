@@ -230,6 +230,14 @@ export interface InvoiceListItem {
   sunat_response_code: string | null;
   sunat_response_desc: string | null;
   sunat_document_id: string | null;
+  /**
+   * Envíos al proveedor SUNAT. Al llegar a `MAX_SUNAT_ATTEMPTS` el auto-retry del
+   * pull deja de ver el comprobante y éste se queda en `issued` para siempre: es
+   * el dead-letter, y hasta ahora no había ninguna pantalla donde verlo.
+   */
+  sunat_attempts: number;
+  /** Ticket del resumen de baja: `pending` | `completed` | `failed`. */
+  sunat_ticket_status: string | null;
 }
 
 export interface InvoiceDetail extends Invoice {
@@ -261,6 +269,14 @@ export interface InvoiceFilters {
   date_to?: string;
   cash_register_id?: string;
   search?: string;
+  /**
+   * Sólo los comprobantes que necesitan una decisión humana: los que agotaron los
+   * reintentos automáticos a SUNAT y los que tienen una anulación esperando la
+   * respuesta del ticket. Es un filtro y no un estado porque el estado real de un
+   * comprobante atascado sigue siendo `issued`: eso es justamente lo que lo hacía
+   * invisible.
+   */
+  sunat_problems?: boolean;
 }
 
 export interface CustomerFilters {

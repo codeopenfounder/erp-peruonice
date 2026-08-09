@@ -122,9 +122,146 @@ aceptado.
   notas vinculadas a factura; la baja de una boleta va dentro de un Resumen Diario
   con el ítem en estado 3. El adapter lo rechaza con un mensaje que remite a la NC
   motivo 01.
-- **Falta el polling.** Nadie llama a `ConsultarEstadoTicket`, así que
-  `sunat_summaries.status` se queda en `pending`. Por eso el botón "Anular" del POS
-  sigue deshabilitado y se anula con NC motivo 01, que es síncrona.
+- ~~**Falta el polling.**~~ — **hecho el 2026-08-09.** Ver la sección siguiente.
+
+## Consulta del ticket: `ConsultarEstadoTicket`
+
+Es lo que cierra el ciclo. Contrato confirmado contra la documentación de Billme:
+
+```
+POST https://www.api.billmeperu.com/api/v1/Emission/ConsultarEstadoTicket
+{ numDocEmisor, numTicket, tipoComprobante: "RC"|"RA", serie, correlativo }
+```
+
+`serie` es el **`AAAAMMDD`** del identificador del resumen y `correlativo` el N
+dentro de esa fecha — o sea, exactamente las dos columnas que ya guarda
+`sunat_summaries` (`reference_date` y `correlative`). Mismo criterio de nombres que
+`EnviarResumen`.
+
+**Billme no documenta la respuesta de este endpoint.** Su tabla de
+`respuesta-de-consultas` mete `cdrBase64`, `xmlBase64` y `ticketNumber` en una sola
+tabla sin decir qué endpoint devuelve cuál. La referencia de SUNAT para `getStatus`
+es: `0` procesado (el contenido trae el CDR), `98` en proceso, `99` procesado con
+errores.
+
+Por eso el mapeo de `bilme-adapter.checkTicket()` se apoya **sólo en lo que el sobre
+garantiza** y NO desempaqueta el ZIP del CDR para leer el `ResponseCode`: hacerlo
+exigiría un descompresor y, sobre todo, fiarse de una forma de respuesta no
+documentada. En orden de precedencia:
+
+| Se observa | Veredicto |
+|---|---|
+| `faultCode` no vacío | `rejected` (passthrough del fault de SUNAT) |
+| descripción con "en proceso" / "98" | `pending` |
+| `cdrBase64` presente | `accepted` |
+| nada de lo anterior | `pending` |
+
+La heurística de "en proceso" va **antes** de comprobar el CDR a propósito: si algún
+día Billme devolviera el CDR del envío junto con un "en proceso", tratarlo como
+aceptado marcaría como anulado un comprobante que SUNAT aún no ha dado de baja. Ante
+la duda, `pending` sólo cuesta otra consulta en dos minutos; un `accepted` de más es
+un comprobante mal declarado. **Cuando se confirme el formato real contra la API,
+sustituir la heurística por la comprobación exacta.**
+
+Un timeout o un fallo de red devuelven `pending`, nunca `rejected`: un fallo de
+transporte no dice nada sobre lo que SUNAT decidió.
+
+### El reloj y el tope
+
+No hay cron en Vercel (`vercel.json` sólo fija región), así que
+`pollPendingSummaries()` se dispara desde el pull del POS —cada 2 minutos— y desde
+un botón en la página de comprobantes del ERP. Con el POS apagado no se consulta
+nada, y es aceptable: la baja ya está enviada y el plazo de SUNAT es de días.
+
+`sunat_summaries.poll_attempts` corta a las 20 consultas (~40 minutos). Sin tope, un
+ticket que nunca resuelve se consultaría ~720 veces al día para siempre.
+
+### La asimetría del stock
+
+La devolución de stock y el movimiento de caja se hacen **cuando se envía el RA**, no
+cuando el ticket vuelve aceptado: la mercadería volvió físicamente y el dinero salió
+del cajón en ese momento. Si SUNAT rechaza el resumen, deshacer la devolución
+falsearía el inventario real, así que se notifica al módulo de comprobantes y el
+comprobante vuelve a `accepted` para poder reintentar la baja.
+
+## Operaciones gratuitas (cortesías y adicionales)
+
+**Estado: implementado y APAGADO** tras `fact_config.emit_free_lines` (migración
+`00041`, default `false`).
+
+El defecto que corrige: `buildProductos` descartaba toda línea con
+`total === 0 && subtotal === 0`, y `applyCortesia` del POS pone `unit_price: 0`. Es
+decir, **cada cortesía se imprimía en el ticket y no existía en el comprobante
+electrónico**. Y `reference_value` se calculaba en tres sitios del servidor sin que
+ningún consumidor lo leyera.
+
+Lo que exige SUNAT para una entrega sin contraprestación:
+
+| Concepto SUNAT | Campo de Billme | Valor |
+|---|---|---|
+| `cac:Price/cbc:PriceAmount` | `precioUnitario` | **0** — no se cobró nada |
+| `AlternativeConditionPrice` + `PriceTypeCode` | `precioLista` + `codigoTipoPrecio` | valor referencial **con** IGV + **`02`** |
+| `cbc:LineExtensionAmount` | `montoSinImpuesto` / `montoTotal` | valor referencial **sin** IGV × cantidad |
+| `TaxTotal` | `impuestos[0]` | tributo **9996** (GRA / FRE), IGV sobre esa base |
+| Catálogo 07 | `codigoAfectacionIgv` | código de **gratuidad**, no el oneroso |
+
+Catálogo 16, tipo de precio: `01` = precio unitario (incluye IGV), **`02` = valor
+referencial unitario en operaciones no onerosas**.
+
+Catálogo 07, códigos de gratuidad según la afectación del bien:
+
+| Bien | Código | Descripción |
+|---|---|---|
+| gravado | **15** | Gravado – Bonificaciones |
+| exonerado | 21 | Exonerado – Transferencia gratuita |
+| inafecto | 37 | Inafecto – Transferencia gratuita |
+
+`15` y no `11` (retiro por premio) ni `13` (retiro genérico): lo que hace el negocio
+es entregar algo gratis **acompañando a una venta**, que es literalmente una
+bonificación, y es coherente con la NC motivo 08 del catálogo 09 que
+`note-effects.ts` ya modela como el único motivo que saca stock.
+
+El POS mandaba `tax_type: "inafecto"`, que es el código **30** — *inafecto operación
+onerosa*, que es otra cosa.
+
+**El valor referencial** sale de `lib/sunat/reference-values.ts`:
+`supplies.cost_price` para un adicional (es lo único que hay: `supplies` no tiene
+precio de venta) e `invoice_items.original_unit_price` para una cortesía — que es el
+caso mejor, porque el precio que se regaló ES el valor de la operación. Mínimo 0.01:
+un valor referencial en 0 deja la línea sin base imponible y SUNAT la rechaza.
+
+### Por qué está apagado, y cómo encenderlo
+
+Hoy la boleta con cortesía se **acepta** precisamente porque la línea desaparece y
+los totales cuadran. Al declararla como gratuita, SUNAT exige además el **total de
+venta gratuita** del comprobante — y la documentación de Billme lista nueve campos
+en `totales` y **ninguno** de venta gratuita. Encenderlo sin comprobarlo podría
+convertir una boleta que hoy se acepta en un rechazo completo, en la vía de venta
+principal.
+
+Sonda, con el token de **desarrollo**:
+
+1. Emitir en beta una boleta con una línea normal y una cortesía.
+2. Comprobar `faultCode` vacío y `cdrBase64` presente.
+3. Descomprimir el `cdrBase64` → `ResponseCode 0`.
+4. Decodificar el `xmlDocument` → la línea gratuita lleva
+   `AlternativeConditionPrice` con `PriceTypeCode 02` y tributo 9996.
+5. Si SUNAT reclama el total de venta gratuita, **no forzarlo**: documentar el hueco
+   de contrato y preguntar al proveedor qué campo espera.
+
+Sólo entonces: `UPDATE public.fact_config SET emit_free_lines = true WHERE tenant_id = '…';`
+
+## Validación del RUC del emisor
+
+**Billme no valida el RUC del emisor contra el token.** Verificado: en desarrollo
+aceptó una boleta con un RUC ajeno. Así que un RUC mal formado pasa silenciosamente
+en homologación y aparece como rechazo en producción, con el correlativo ya
+consumido y un hueco en la serie.
+
+Desde el 2026-08-09 el ERP lo valida con el checksum módulo 11 de SUNAT
+(`lib/sunat/ruc.ts`) en tres puntos: el validador Zod de `saveFactConfig` —único
+punto de escritura— y los dos caminos de emisión, para los RUC que ya estaban
+guardados con el regex antiguo de "11 dígitos y nada más".
 
 ## Reintentos
 

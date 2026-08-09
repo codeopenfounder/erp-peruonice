@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   DollarSign,
@@ -9,6 +10,7 @@ import {
   Receipt,
   FileWarning,
   Search,
+  TriangleAlert,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { KpiCard } from "@/components/kpi/kpi-card";
@@ -23,14 +25,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getInvoiceColumns } from "@/components/ventas/invoice-columns";
+import { getInvoiceColumns, isSunatStuck } from "@/components/ventas/invoice-columns";
 import { InvoiceDetailDialog } from "@/components/ventas/invoice-detail-dialog";
 import {
   useInvoices,
   useInvoiceKPIs,
 } from "@/hooks/queries/use-ventas";
 import { useCashRegisterStatuses } from "@/hooks/queries/use-gastos";
-import { getInvoicePdfData } from "@/actions/ventas";
+import {
+  checkPendingVoidTickets,
+  getInvoicePdfData,
+  retrySunatFromErp,
+} from "@/actions/ventas";
 import { downloadComprobantePdf } from "@/lib/pdf/comprobante-pdf";
 import type { DocumentType } from "@/lib/pdf/sunat-format";
 import type { InvoiceFilters } from "@/types/invoice";
@@ -47,6 +53,7 @@ export default function ComprobantesPage() {
 
 function ComprobantesContent() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
 
   // Filter state
   const [search, setSearch] = useState("");
@@ -56,6 +63,7 @@ function ComprobantesContent() {
   const [dateFrom, setDateFrom] = useState<string>("");
   const [dateTo, setDateTo] = useState<string>("");
   const [cashRegisterId, setCashRegisterId] = useState<string | null>(null);
+  const [onlySunatProblems, setOnlySunatProblems] = useState(false);
   const [page, setPage] = useState(0);
 
   // Dialog state
@@ -72,7 +80,7 @@ function ComprobantesContent() {
   // Reset page on filter change
   useEffect(() => {
     setPage(0);
-  }, [search, docType, statusFilter, paymentFilter, dateFrom, dateTo, cashRegisterId]);
+  }, [search, docType, statusFilter, paymentFilter, dateFrom, dateTo, cashRegisterId, onlySunatProblems]);
 
   const filters = useMemo<InvoiceFilters>(
     () => ({
@@ -83,9 +91,10 @@ function ComprobantesContent() {
       date_from: dateFrom || undefined,
       date_to: dateTo || undefined,
       cash_register_id: cashRegisterId || undefined,
+      sunat_problems: onlySunatProblems || undefined,
       page: page + 1,
     }),
-    [search, docType, statusFilter, paymentFilter, dateFrom, dateTo, cashRegisterId, page]
+    [search, docType, statusFilter, paymentFilter, dateFrom, dateTo, cashRegisterId, onlySunatProblems, page]
   );
 
   // Queries
@@ -149,14 +158,90 @@ function ComprobantesContent() {
     }
   }, []);
 
+  /**
+   * Reenvía a SUNAT un comprobante atascado.
+   *
+   * Hasta ahora el único rescate manual estaba en el POS, así que un comprobante
+   * que agotó los cinco reintentos automáticos dependía de que un cajero abriera
+   * caja y se fijara en un icono. Desde el ERP es una decisión contable.
+   */
+  const handleRetrySunat = useCallback(
+    async (invoiceId: string) => {
+      const toastId = toast.loading("Reenviando a SUNAT…");
+      try {
+        const result = await retrySunatFromErp(invoiceId);
+        if (result.success) {
+          toast.success(
+            result.responseDesc || "El comprobante se envió a SUNAT.",
+            { id: toastId },
+          );
+        } else {
+          toast.error(result.error || "SUNAT rechazó el comprobante", { id: toastId });
+        }
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Error al reenviar", {
+          id: toastId,
+        });
+      } finally {
+        await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+      }
+    },
+    [queryClient],
+  );
+
+  /**
+   * Consulta ya los tickets de anulación pendientes, sin esperar a que un POS haga
+   * su pull. Es el botón manual del único reloj que existe (no hay cron en Vercel).
+   */
+  const handleCheckVoidTickets = useCallback(async () => {
+    const toastId = toast.loading("Consultando SUNAT…");
+    try {
+      const result = await checkPendingVoidTickets();
+      if (!result.success) {
+        toast.error(result.error, { id: toastId });
+        return;
+      }
+      if (result.checked === 0) {
+        toast.info("No hay anulaciones esperando respuesta de SUNAT.", { id: toastId });
+      } else {
+        toast.success(
+          `Consultados ${result.checked}: ${result.accepted} aceptadas, ` +
+            `${result.rejected} rechazadas, ${result.stillPending} aún en proceso.`,
+          { id: toastId },
+        );
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al consultar", {
+        id: toastId,
+      });
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ["invoices"] });
+    }
+  }, [queryClient]);
+
   const columns = useMemo(
-    () => getInvoiceColumns((id) => setDetailId(id), handleDownloadPdf),
-    [handleDownloadPdf]
+    () =>
+      getInvoiceColumns(
+        (id) => setDetailId(id),
+        handleDownloadPdf,
+        handleRetrySunat,
+        handleCheckVoidTickets
+      ),
+    [handleDownloadPdf, handleRetrySunat, handleCheckVoidTickets]
   );
 
   const totalPages = invoiceData
     ? Math.ceil(invoiceData.total / PAGE_SIZE)
     : 0;
+
+  /**
+   * Comprobantes que agotaron los reintentos. Se cuenta sobre la página cargada:
+   * es un aviso, no un informe, y basta para que nadie tenga que ir a buscarlo.
+   */
+  const stuckCount = (invoiceData?.data ?? []).filter(isSunatStuck).length;
+  const pendingVoidCount = (invoiceData?.data ?? []).filter(
+    (i) => i.sunat_ticket_status === "pending"
+  ).length;
 
   return (
     <div className="space-y-6">
@@ -285,6 +370,21 @@ function ComprobantesContent() {
           />
         </div>
 
+        <button
+          type="button"
+          onClick={() => setOnlySunatProblems((v) => !v)}
+          aria-pressed={onlySunatProblems}
+          title="Comprobantes que agotaron los reintentos automáticos o cuya anulación espera respuesta de SUNAT"
+          className={`inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm font-medium transition-colors ${
+            onlySunatProblems
+              ? "border-destructive/40 bg-destructive/10 text-destructive"
+              : "border-input text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          <TriangleAlert className="size-3.5" />
+          Con problemas SUNAT
+        </button>
+
         {registers && registers.length > 0 && (
           <Select
             value={cashRegisterId ?? "all"}
@@ -304,6 +404,41 @@ function ComprobantesContent() {
           </Select>
         )}
       </div>
+
+      {/* Comprobantes que necesitan una decisión humana.
+          El dead-letter y el ticket pendiente no tenían ninguna superficie: el
+          primero se quedaba en `issued` para siempre y el segundo en `pending`. */}
+      {(stuckCount > 0 || pendingVoidCount > 0) && (
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-sm">
+          <TriangleAlert className="size-4 shrink-0 text-amber-600" />
+          <div className="flex-1 space-y-0.5">
+            {stuckCount > 0 && (
+              <p className="text-foreground">
+                <strong>{stuckCount}</strong>{" "}
+                {stuckCount === 1 ? "comprobante agotó" : "comprobantes agotaron"} los
+                reintentos automáticos a SUNAT. El reenvío automático ya no los toma:
+                usa «Reintentar SUNAT» en cada fila.
+              </p>
+            )}
+            {pendingVoidCount > 0 && (
+              <p className="text-muted-foreground">
+                <strong>{pendingVoidCount}</strong>{" "}
+                {pendingVoidCount === 1 ? "anulación espera" : "anulaciones esperan"} la
+                respuesta de SUNAT al ticket del resumen.
+              </p>
+            )}
+          </div>
+          {pendingVoidCount > 0 && (
+            <button
+              type="button"
+              onClick={handleCheckVoidTickets}
+              className="rounded-md border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-500/10"
+            >
+              Consultar ahora
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Data Table */}
       <DataTable

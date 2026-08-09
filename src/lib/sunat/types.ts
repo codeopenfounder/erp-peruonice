@@ -15,6 +15,17 @@ export interface FactConfig {
   is_production: boolean;
   provider: string;
   tenant_id: string;
+  /**
+   * Declarar cortesías y adicionales como operación gratuita ante SUNAT.
+   *
+   * Opcional y por defecto apagado (migración 00041). Hasta ahora esas líneas se
+   * caían del payload —importe 0 → filtradas—, así que una cortesía se imprimía en
+   * el ticket y no existía en el comprobante electrónico. Encenderlo exige haber
+   * comprobado contra la API real que el proveedor acepta la línea gratuita, porque
+   * SUNAT además pide el total de venta gratuita del comprobante y Billme no
+   * documenta ningún campo para él.
+   */
+  emit_free_lines?: boolean;
 }
 
 export interface SunatInvoiceItemInput {
@@ -105,6 +116,24 @@ export interface StatusResult {
   message: string | null;
 }
 
+/** Tipo de resumen SUNAT: RC = resumen diario de boletas, RA = comunicación de baja. */
+export type SunatSummaryType = "RC" | "RA";
+
+/**
+ * Resultado de consultar el ticket de un resumen.
+ *
+ * `pending` NO es un fallo: un resumen es asíncrono por diseño y SUNAT responde
+ * "en proceso" (código 98) hasta que termina de validarlo. Quien llama debe
+ * distinguir las tres ramas y volver a consultar sólo en `pending`.
+ */
+export interface TicketResult {
+  status: "accepted" | "rejected" | "pending";
+  responseCode: string | null;
+  responseDesc: string | null;
+  xmlUrl: string | null;
+  cdrUrl: string | null;
+}
+
 export interface SunatProvider {
   readonly name: string;
   submit(
@@ -131,6 +160,21 @@ export interface SunatProvider {
     seriesCode: string,
     correlativeNumber: number,
   ): Promise<StatusResult>;
+  /**
+   * Cierra el ciclo asíncrono: `void()` devuelve un ticket que sólo acredita que
+   * SUNAT RECIBIÓ el resumen. Hasta que esto se consulte, la baja no está
+   * aceptada — y hasta la migración 00041 nadie lo consultaba, así que
+   * `sunat_summaries.status` se quedaba en `pending` para siempre.
+   *
+   * El adapter sigue siendo puro: recibe la identidad del resumen y el ticket, y
+   * no toca la base. Quien llama (`lib/sunat/poll-summaries.ts`) persiste.
+   */
+  checkTicket(
+    config: FactConfig,
+    summaryType: SunatSummaryType,
+    summary: SunatSummaryRef,
+    ticket: string,
+  ): Promise<TicketResult>;
 }
 
 export const SUNAT_STATUS_MAP: Record<SunatStatus, string> = {

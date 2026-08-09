@@ -3,6 +3,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { validateFactUser } from "@/lib/fact-auth";
 import { getSunatProvider } from "@/lib/sunat/factory";
 import { persistSunatResult, registerSunatAttempt } from "@/lib/sunat/persist";
+import {
+  createBranchCache,
+  insertInventoryMovement,
+  resolveMovementBranchId,
+} from "@/lib/inventory-movement";
+import { buildReferenceValueMap } from "@/lib/sunat/reference-values";
+import { isEmisorRucValid } from "@/lib/sunat/ruc";
 
 export async function POST(request: Request) {
   try {
@@ -40,7 +47,7 @@ export async function POST(request: Request) {
     // Get fact config
     const { data: factConfigRaw } = await adminClient
       .from("fact_config")
-      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account")
+      .select("ruc, razon_social, direccion_fiscal, ubigeo, departamento, provincia, distrito, api_token, is_production, provider, detraction_account, emit_free_lines")
       .eq("tenant_id", ctx.tenantId)
       .eq("is_active", true)
       .single();
@@ -48,6 +55,22 @@ export async function POST(request: Request) {
     if (!factConfigRaw?.api_token) {
       return NextResponse.json(
         { success: false, error: "Configuracion SUNAT no encontrada" },
+        { status: 400 },
+      );
+    }
+
+    // Las tres acciones —retry, void y status— hablan con el proveedor usando el
+    // RUC del emisor. Se comprueba una vez, aquí. El regex del formulario sólo
+    // exigía 11 dígitos, así que en la base puede haber un RUC que no exista, y
+    // Billme no lo detecta: verificado, aceptó una boleta con un RUC ajeno.
+    if (!isEmisorRucValid(factConfigRaw.ruc)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            `El RUC del emisor configurado (${factConfigRaw.ruc}) no pasa el dígito verificador ` +
+            `de SUNAT. Corrígelo en Configuración › POI Fact antes de emitir o anular.`,
+        },
         { status: 400 },
       );
     }
@@ -75,6 +98,63 @@ export async function POST(request: Request) {
       if (invoiceDateStr !== peruToday) {
         return NextResponse.json(
           { success: false, error: "Solo se puede anular comprobantes emitidos hoy" },
+          { status: 400 },
+        );
+      }
+
+      // Sólo se anula lo que SUNAT aceptó.
+      //
+      // Sin esta comprobación se podía anular dos veces el mismo comprobante: la
+      // segunda pasada volvía a incrementar el stock, volvía a crear el
+      // movimiento de devolución en caja y quemaba un segundo correlativo de RA.
+      // Y anular algo que SUNAT nunca aceptó no tiene sentido: un `issued` o un
+      // `rejected` no existe para SUNAT, así que no hay nada que dar de baja.
+      //
+      // Es además el invariante en el que se apoya el polling: si el ticket
+      // vuelve rechazado, el comprobante regresa a `accepted`, que es el único
+      // estado del que pudo haber salido.
+      const VOIDABLE_STATUSES = ["accepted"];
+      if (!VOIDABLE_STATUSES.includes(invoice.status)) {
+        const explanation: Record<string, string> = {
+          voided: "El comprobante ya está anulado.",
+          pending_void:
+            "Ya hay una baja en curso para este comprobante, esperando la respuesta de SUNAT.",
+          issued:
+            "El comprobante todavía no llegó a SUNAT. Reenvíalo primero; si SUNAT lo rechaza, no hay nada que anular.",
+          sent_to_sunat:
+            "El comprobante sigue viajando a SUNAT. Consulta su estado antes de anularlo.",
+          rejected:
+            "SUNAT rechazó este comprobante, así que no existe para SUNAT y no hay nada que dar de baja.",
+          draft: "Un borrador no se anula: se descarta.",
+        };
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              explanation[invoice.status] ??
+              `No se puede anular un comprobante en estado "${invoice.status}".`,
+          },
+          { status: 400 },
+        );
+      }
+
+      // Una boleta no se da de baja por Resumen de Bajas: el RA (VoidedDocuments)
+      // cubre facturas y las notas vinculadas a factura, y la baja de una boleta
+      // iría dentro de un Resumen Diario con el ítem en estado 3, que es otro
+      // documento y otro flujo (no construido).
+      //
+      // El corte estaba SOLO dentro del adapter de Billme, y para entonces ya se
+      // había consumido un correlativo de RA y se había insertado la fila en
+      // `sunat_summaries`: cada intento de anular una boleta quemaba un
+      // identificador de resumen sin mandar un solo byte. Ahora se corta antes.
+      // El del adapter se conserva como defensa en profundidad.
+      if (invoice.document_type === "boleta") {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Una boleta no se anula por Resumen de Bajas. Emite una nota de crédito con motivo 01 (anulación de la operación).",
+          },
           { status: 400 },
         );
       }
@@ -117,31 +197,60 @@ export async function POST(request: Request) {
       // El resumen se registra tanto si SUNAT lo aceptó como si no: un RA que se
       // envió y falló ya consumió su correlativo, y sin el registro no habría
       // forma de saber qué se mandó ni con qué ticket consultarlo después.
-      const sentSummary = result.summary ?? summaryRef;
+      //
+      // `result.summary` sólo viene cuando el adapter llegó a construir y enviar
+      // el resumen. Si cortó antes (tipo de documento no anulable), no hay nada
+      // que registrar y el correlativo, aunque pedido, no se ata a ninguna
+      // identidad publicada.
+      const sentSummary = result.summary ?? (result.ticket ? summaryRef : null);
+      let summaryId: string | null = null;
       if (sentSummary) {
-        const { error: summaryInsertError } = await adminClient.from("sunat_summaries").insert({
-          tenant_id: ctx.tenantId,
-          summary_type: "RA",
-          reference_date: sentSummary.referenceDate,
-          correlative: sentSummary.correlative,
-          ticket: result.ticket,
-          status: result.success ? "pending" : "failed",
-          response_desc: result.error,
-          created_by: ctx.userId,
-        });
+        const { data: summaryRow, error: summaryInsertError } = await adminClient
+          .from("sunat_summaries")
+          .insert({
+            tenant_id: ctx.tenantId,
+            summary_type: "RA",
+            reference_date: sentSummary.referenceDate,
+            correlative: sentSummary.correlative,
+            ticket: result.ticket,
+            status: result.success ? "pending" : "failed",
+            response_desc: result.error,
+            created_by: ctx.userId,
+          })
+          .select("id")
+          .single();
         if (summaryInsertError) {
           console.error("[sunat-void] No se pudo registrar el resumen:", summaryInsertError);
+        } else {
+          summaryId = summaryRow?.id ?? null;
         }
       }
 
       if (result.success) {
+        // Qué comprobantes informa este resumen. Sin este enlace el polling del
+        // ticket sabe si SUNAT aceptó la baja pero no a qué comprobante
+        // aplicarla: `sunat_summaries` e `invoices` eran dos hechos sin relación.
+        if (summaryId) {
+          const { error: itemLinkError } = await adminClient
+            .from("sunat_summary_items")
+            .insert({ summary_id: summaryId, invoice_id: invoiceId });
+          if (itemLinkError) {
+            console.error(
+              "[sunat-void] No se pudo enlazar el comprobante con el resumen:",
+              itemLinkError.message,
+            );
+          }
+        }
+
+        // Con ticket la baja está sólo RECIBIDA, no aceptada: el comprobante
+        // queda en `pending_void` (estado que existe en el CHECK desde 00001 y
+        // que hasta ahora no escribía nadie) hasta que `pollPendingSummaries`
+        // consulte el ticket. Sin ticket —apisunat resuelve en la misma
+        // llamada— la baja es firme y pasa directo a `voided`.
         await adminClient
           .from("invoices")
           .update({
-            status: "voided",
-            // El resumen devuelve un ticket, no una aceptación: hasta que se
-            // consulte con ConsultarEstadoTicket, la baja está sólo recibida.
-            // La columna existía desde 00030 y no la escribía nadie.
+            status: result.ticket ? "pending_void" : "voided",
             sunat_ticket_status: result.ticket ? "pending" : null,
             authorized_by: authorization?.authorizer_id || ctx.userId,
             authorized_by_name: authorization?.authorizer_name || ctx.userName,
@@ -170,16 +279,27 @@ export async function POST(request: Request) {
           .select("product_id, supply_id, quantity, description, is_cortesia")
           .eq("invoice_id", invoiceId);
 
-        // Get branch from cash register
-        let voidBranchId: string | null = null;
-        if (invoice.cash_register_id) {
-          const { data: reg } = await adminClient
-            .from("cash_registers")
-            .select("branch_id")
-            .eq("id", invoice.cash_register_id)
-            .single();
-          voidBranchId = reg?.branch_id || null;
-        }
+        // Sede de los movimientos de devolución.
+        //
+        // Antes esto era sólo `cash_registers.branch_id` de la caja del
+        // comprobante, SIN cadena de fallback. Un comprobante sin caja —un pago
+        // online de Culqi, por ejemplo— dejaba `voidBranchId` en `null`, y como
+        // `inventory_movements.branch_id` es NOT NULL y ninguno de los tres
+        // INSERT comprobaba el error, **la anulación devolvía el stock y perdía
+        // los tres movimientos en silencio**: el saldo cambiaba y el kardex no lo
+        // explicaba. Justo en el camino que más traza fiscal necesita.
+        const branchCache = createBranchCache();
+        const voidBranchId = await resolveMovementBranchId(
+          adminClient,
+          ctx.tenantId,
+          { cashRegisterId: invoice.cash_register_id, userId: ctx.userId },
+          branchCache,
+        );
+
+        // Avisos de lo que falló DESPUÉS de que SUNAT recibiera la baja. No
+        // pueden convertir la respuesta en un fallo —la anulación ya está
+        // enviada— pero tampoco pueden desaparecer.
+        const voidWarnings: string[] = [];
 
         // Get product metadata (type, kind) to skip services and handle composites
         const voidProductIds = (voidItems || []).filter(i => i.product_id).map(i => i.product_id!);
@@ -230,48 +350,66 @@ export async function POST(request: Request) {
 
           if (item.product_id && voidCompositeIds.has(item.product_id)) {
             for (const ri of voidRecipeMap.get(item.product_id) || []) {
-              await adminClient.from("inventory_movements").insert({
-                tenant_id: ctx.tenantId,
-                entity_type: "supply",
-                entity_id: ri.supply_id,
-                quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
-                movement_type: "nc_return",
-                reason: `Anulación: ${item.description}`,
-                branch_id: voidBranchId,
-                invoice_id: invoiceId,
-                created_by: ctx.userId,
-              });
+              const { error: movErr } = await insertInventoryMovement(
+                adminClient,
+                {
+                  tenant_id: ctx.tenantId,
+                  entity_type: "supply",
+                  entity_id: ri.supply_id,
+                  quantity: Math.round(item.quantity * ri.quantity_needed * 10000) / 10000,
+                  movement_type: "nc_return",
+                  reason: `Anulación: ${item.description}`,
+                  branch_id: voidBranchId,
+                  invoice_id: invoiceId,
+                  created_by: ctx.userId,
+                },
+                { cashRegisterId: invoice.cash_register_id, userId: ctx.userId },
+                branchCache,
+              );
+              if (movErr) voidWarnings.push(movErr);
             }
             continue;
           }
 
           if (item.supply_id && !item.product_id) {
-            await adminClient.from("inventory_movements").insert({
-              tenant_id: ctx.tenantId,
-              entity_type: "supply",
-              entity_id: item.supply_id,
-              quantity: item.quantity,
-              movement_type: "nc_return",
-              reason: `Anulación: ${item.description}`,
-              branch_id: voidBranchId,
-              invoice_id: invoiceId,
-              created_by: ctx.userId,
-            });
+            const { error: movErr } = await insertInventoryMovement(
+              adminClient,
+              {
+                tenant_id: ctx.tenantId,
+                entity_type: "supply",
+                entity_id: item.supply_id,
+                quantity: item.quantity,
+                movement_type: "nc_return",
+                reason: `Anulación: ${item.description}`,
+                branch_id: voidBranchId,
+                invoice_id: invoiceId,
+                created_by: ctx.userId,
+              },
+              { cashRegisterId: invoice.cash_register_id, userId: ctx.userId },
+              branchCache,
+            );
+            if (movErr) voidWarnings.push(movErr);
             continue;
           }
 
           if (item.product_id) {
-            await adminClient.from("inventory_movements").insert({
-              tenant_id: ctx.tenantId,
-              entity_type: "product",
-              entity_id: item.product_id,
-              quantity: item.quantity,
-              movement_type: "nc_return",
-              reason: `Anulación: ${item.description}`,
-              branch_id: voidBranchId,
-              invoice_id: invoiceId,
-              created_by: ctx.userId,
-            });
+            const { error: movErr } = await insertInventoryMovement(
+              adminClient,
+              {
+                tenant_id: ctx.tenantId,
+                entity_type: "product",
+                entity_id: item.product_id,
+                quantity: item.quantity,
+                movement_type: "nc_return",
+                reason: `Anulación: ${item.description}`,
+                branch_id: voidBranchId,
+                invoice_id: invoiceId,
+                created_by: ctx.userId,
+              },
+              { cashRegisterId: invoice.cash_register_id, userId: ctx.userId },
+              branchCache,
+            );
+            if (movErr) voidWarnings.push(movErr);
           }
         }
 
@@ -287,7 +425,6 @@ export async function POST(request: Request) {
         // con tarjeta descuadraba el efectivo, porque esa devolución va por el
         // adquirente y no toca el cajón.
         const documentLabel = `${seriesCode}-${String(invoice.correlative_number).padStart(8, "0")}`;
-        let cashWarning: string | null = null;
 
         const { data: openOpening } = invoice.cash_register_id
           ? await adminClient
@@ -316,21 +453,33 @@ export async function POST(request: Request) {
               cash_register_id: invoice.cash_register_id,
             });
           if (movementError) {
-            cashWarning = `La anulación se registró en SUNAT, pero la devolución no se pudo registrar en caja: ${movementError.message}`;
+            voidWarnings.push(
+              `La devolución no se pudo registrar en caja: ${movementError.message}`,
+            );
             console.error("[sunat/void] Refund movement insert failed:", movementError.message);
           }
         } else {
           // La anulación ante SUNAT es el acto fiscal y ya está hecha: no se
           // bloquea por no poder anotar la caja, pero tampoco se inventa una.
-          cashWarning =
-            "La anulación se registró en SUNAT, pero la devolución no se anotó en caja porque no hay ninguna caja abierta. Ábrela y registra el egreso a mano.";
+          voidWarnings.push(
+            "La devolución no se anotó en caja porque no hay ninguna caja abierta. Ábrela y registra el egreso a mano.",
+          );
           console.warn(`[sunat/void] ${documentLabel}: sin apertura abierta para registrar el refund`);
         }
 
         return NextResponse.json({
           success: result.success,
-          data: result,
-          warning: cashWarning,
+          data: {
+            ...result,
+            // El comprobante NO queda anulado todavía si hay ticket: el POS y el
+            // ERP tienen que reflejar `pending_void` y esperar al polling.
+            invoice_status: result.ticket ? "pending_void" : "voided",
+            ticket_status: result.ticket ? "pending" : null,
+          },
+          warning:
+            voidWarnings.length > 0
+              ? `La anulación se envió a SUNAT, pero: ${voidWarnings.join(" · ")}`
+              : null,
         });
       }
 
@@ -407,25 +556,15 @@ export async function POST(request: Request) {
         }
       }
 
-      // Get invoice items (include supply_id for gratuito reference_value lookup)
+      // Get invoice items. `supply_id`, `is_cortesia` y `original_unit_price`
+      // deciden el valor referencial de las líneas gratuitas.
       const { data: items } = await adminClient
         .from("invoice_items")
-        .select("description, quantity, unit_price, unit_of_measure, igv_rate, igv_amount, subtotal, total, tax_type, supply_id")
+        .select("description, quantity, unit_price, unit_of_measure, igv_rate, igv_amount, subtotal, total, tax_type, supply_id, is_cortesia, original_unit_price")
         .eq("invoice_id", invoiceId)
         .order("sort_order");
 
-      // Lookup cost_prices for supply items (SUNAT valor referencial for gratuito items)
-      const retrySupplyIds = (items || []).filter(i => i.supply_id).map(i => i.supply_id!);
-      const retrySupplyCostMap = new Map<string, number>();
-      if (retrySupplyIds.length > 0) {
-        const { data: supplyCosts } = await adminClient
-          .from("supplies")
-          .select("id, cost_price")
-          .in("id", retrySupplyIds);
-        for (const s of supplyCosts || []) {
-          retrySupplyCostMap.set(s.id, parseFloat(String(s.cost_price)) || 0.01);
-        }
-      }
+      const referenceValueOf = await buildReferenceValueMap(adminClient, items || []);
 
       // Resolve reference invoice for NC/ND
       let refSeries: string | undefined;
@@ -474,7 +613,7 @@ export async function POST(request: Request) {
           subtotal: item.subtotal,
           total: item.total,
           tax_type: item.tax_type,
-          reference_value: item.supply_id ? retrySupplyCostMap.get(item.supply_id) : undefined,
+          reference_value: referenceValueOf(item),
         })),
         reference_series: refSeries,
         reference_correlative: refCorrelative,

@@ -156,7 +156,41 @@ El razonamiento de por qué no se hizo antes está en `00040_device_identity.sql
 
 ---
 
-## 4. El PAT de GitHub embebido en el remoto de `poi-erp`
+## 4. Credenciales expuestas en un repositorio PÚBLICO — rotar
+
+**`codeopenfounder/erp-peruonice` es público.** Verificado el 2026-08-09 contra la
+API de GitHub (`isPrivate: false`). También lo son `lector-peruonice` y `codeopen`;
+`poi-fact` es el único privado.
+
+Hasta el 2026-08-09 el repositorio contenía **dos contraseñas en claro**, escritas a
+mano en tres ficheros de `e2e/`:
+
+| Credencial | Dónde estaba |
+|---|---|
+| Contraseña del **superusuario `postgres`** de `db.ctlvfkiwpmyljeofgitz` | `e2e/smoke-fixes.spec.ts`, `e2e/promotions.spec.ts` |
+| Contraseña del **administrador del ERP en producción** (`administracion@peruonice.com`) | `e2e/smoke-fixes.spec.ts`, `e2e/auth.setup.ts` |
+
+La de Postgres es la más grave: es acceso directo a la base, saltándose RLS y la
+aplicación entera.
+
+**Ya no están en el código** —salen de `.env.local`, que está en `.gitignore`— pero
+**eso no las descompromete**: siguen en el historial público, que ha sido clonable e
+indexable durante semanas.
+
+### Runbook de rotación (pendiente, es acción humana)
+
+1. **Contraseña de Postgres**: Supabase → Settings → Database → *Reset database
+   password*. Actualizar `E2E_PG_PASSWORD` en `.env.local`. Comprobar que nada más
+   la usa (los dos scripts que la llevaban se borraron el 2026-08-08).
+2. **Contraseña del administrador**: cambiarla desde el ERP o desde Supabase Auth.
+   Actualizar `E2E_TEST_PASSWORD` en `.env.local`.
+3. **Decidir la visibilidad del repositorio.** Mientras siga público, cualquiera
+   puede leer el historial: `gh repo edit codeopenfounder/erp-peruonice --visibility private`.
+4. Sólo si se hace privado tiene sentido plantearse purgar el historial
+   (`git filter-repo`); en un repo que ya fue público, la purga no recupera nada.
+5. Revisar los logs de acceso de Supabase por si hubo uso ajeno.
+
+## 5. El PAT de GitHub embebido en el remoto de `poi-erp`
 
 `git -C poi-erp remote -v` devuelve la URL con un token `ghp_…` dentro. Está en
 `.git/config` en claro y aparece en cualquier `git remote -v`, en cualquier captura
@@ -179,7 +213,7 @@ No toca código. Es el hallazgo de seguridad más barato de arreglar de esta lis
 
 ---
 
-## 5. Autorización offline tras reiniciar el POS
+## 6. Autorización offline tras reiniciar el POS
 
 Los cuatro diálogos ya autorizan sin conexión a quien tiene la sesión abierta
 (hecho el 2026-08-09). Pero queda un matiz que conviene tener presente:
@@ -201,7 +235,7 @@ hash. Es diseño, no una tarde de código.
 
 ---
 
-## 6. `types/database.ts` generado de verdad
+## 7. `types/database.ts` generado de verdad
 
 Se podó el 2026-08-09 de 432 líneas y 36 tipos a los **tres** que el código importa
 (`Cargo`, `Profile`, `Tenant`), con una cabecera que dice qué es y qué no. Eso quita
@@ -215,7 +249,7 @@ escrito a mano.
 
 ---
 
-## 7. Restos menores, ya sin sangre
+## 8. Restos menores, ya sin sangre
 
 - **El primer ticket impreso tras cobrar no lleva hash.** El hash sólo existe
   después de que el proveedor firme, y el POS es offline-first. La reimpresión sí lo

@@ -17,6 +17,7 @@
 
 import {
   SUNAT_AUTH_FAULTS,
+  SUNAT_AUTH_FAULT_REMEDY,
   extractSunatCode,
   isProviderAuthFault,
 } from "./policy";
@@ -121,13 +122,13 @@ export async function verifyBilmeToken(
         environment: "production",
         message:
           "Token válido, de una empresa de PRODUCCIÓN. Los comprobantes se emiten con validez fiscal ante SUNAT.",
+        // El remedio sale de la tabla por código, no de un texto genérico: cada
+        // uno de estos fallos se arregla en un sitio distinto, y decir "revisa
+        // las credenciales" manda a buscar por todos ellos.
         solWarning:
           `Pero SUNAT rechaza las credenciales del emisor (${bare}: ` +
           `${SUNAT_AUTH_FAULTS[bare]}). Con esto NO se puede emitir nada, por muy ` +
-          `correcto que sea el comprobante. Revisa el Usuario SOL y la Clave SOL de ` +
-          `la empresa en el panel del proveedor: SUNAT espera el usuario secundario ` +
-          `precedido del RUC (por ejemplo 20613509446MIUSUARIO), y ese usuario debe ` +
-          `existir y tener el perfil de envío de comprobantes electrónicos.`,
+          `correcto que sea el comprobante. ${SUNAT_AUTH_FAULT_REMEDY[bare] ?? ""}`.trim(),
       };
     }
 

@@ -1,32 +1,140 @@
 # Pendiente
 
 Investigado y verificado. Ordenado por gravedad. Actualizado el **2026-08-09**,
-segunda tanda, tras el corte del proveedor de facturación a **Billme producción**.
+tercera tanda, tras el corte del proveedor de facturación a **Billme producción**.
 
-## Estado del despliegue, a 2026-08-09
+---
 
-| | Estado |
-|---|---|
-| Migración `00041` | ✅ aplicada y verificada en producción |
-| Proveedor SUNAT | ✅ `fact_config.provider = bilme`, token de producción verificado |
-| `poi-erp` | ✅ **desplegado** — PR #4 mergeado (`0bc4abe`), verificado contra `erp.peruonice.com` |
-| `poi-fact` **1.0.4** | ✅ descargable desde el ERP, con el SHA-256 servido idéntico al compilado |
-| `poi-lector` | ✅ **desplegado** — `lector.peruonice.com` sirve los tres iconos nuevos y el manifiesto los declara |
+# ⚡ Lee esto primero si abres una sesión nueva
 
-Esta tanda **no tocó la base de datos**: ni migración ni columna nueva. El único
-cambio de datos (`fact_config.provider` → `bilme`) se hizo aparte.
+## ¿Sirve lo que hay para producción?
 
-**No queda nada de esta tanda por desplegar.** Lo que sigue son cosas no
-implementadas o acciones humanas.
+**Sí para boletas y facturas, en cuanto se corrija una contraseña. Con matices en
+el resto.** Honestamente, por vía:
 
-**Lo único que bloquea la emisión: la Clave SOL** (punto 0). Todo lo demás de la
-cadena está verificado — certificado, payload, firma, usuario y permisos.
+| Vía | ¿Lista? | Detalle |
+|---|---|---|
+| **Boleta** | ✅ sí, tras la Clave SOL | Toda la cadena verificada: certificado, payload, firma, usuario y permisos |
+| **Factura** | ✅ sí, tras la Clave SOL | Ídem |
+| **NC / ND** | ⚠️ probablemente | El payload **coincide campo a campo** con la doc oficial, pero **nunca se ha enviado uno a SUNAT**: `BC01`, `FC01`, `BD01` y `FD01` están todas en correlativo 0. La primera será una prueba en vivo |
+| **Factura con detracción (SPOT)** | ❌ no | `fact_config.detraction_account` está en **NULL**. La primera se rechaza. Es un dato, no código |
+| **Cortesías / adicionales** | ⚠️ fuera del XML a propósito | Salen en el ticket impreso y **no** en el comprobante electrónico. Es el comportamiento histórico, ahora consciente y con interruptor. Ver punto 1 |
+| **Anular boleta** | ⚠️ sólo por NC motivo 01 | Con Billme no hay otra vía: su contrato del Resumen Diario no tiene campo de estado de ítem. Es válido y síncrono, pero tampoco se ha ejercitado |
 
-**Las tres que no pueden esperar mucho:**
+**Lo único que bloquea de verdad hoy es la Clave SOL del panel de Billme.** Todo lo
+demás de arriba, o funciona, o es un dato que falta, o es una decisión de negocio.
 
-1. **Corregir la Clave SOL en el panel de Billme** (punto 0) — sin eso no se emite nada.
-2. **Rotar dos contraseñas** (punto 4) — estuvieron en un repositorio público.
-3. **Stock por sede** (punto 2) — la migración sólo es trivial mientras haya una sede.
+## Qué pasó en la sesión del 2026-08-09 (tercera tanda)
+
+El objetivo era «que se pueda emitir ya en producción». Se recorrió **entera** la
+cadena de autenticación de SUNAT y se quedó en el último escalón.
+
+**El hallazgo que reordenó todo**: el proveedor activo era `apisunat`, no Billme.
+Todo el trabajo de líneas gratuitas de la tanda anterior vivía en el adapter de
+Billme, y el de apisunat descarta las líneas de importe cero sin excepción — o sea
+que `emit_free_lines` era un **no-op en producción** todo el tiempo que estuvo
+documentado como pendiente.
+
+Se cambió el proveedor a Billme producción y se recorrieron, uno a uno:
+
+| Código | Qué decía | Qué se tocó |
+|---|---|---|
+| `0103` | El usuario SOL no existe | Se creó el usuario secundario en SUNAT |
+| `0110` | No se pudo obtener el tipo de usuario | Le faltaba el perfil de facturación electrónica |
+| `0104` / `0102` | Clave incorrecta | ← **aquí seguimos** |
+
+Lo que **sí** estaba bien y se comprobó en vez de suponerse: el certificado digital
+(extraído del XML firmado — RENIEC, `PERU ON ICE S.A.C.`, vigente a 2029), los
+payloads de boleta/factura/NC/ND/RA contra la documentación oficial campo a campo, y
+la firma del UBL.
+
+Tres cosas que se aprendieron y que **no están escritas en ninguna documentación**:
+
+1. **Billme antepone el RUC al Usuario SOL.** En su campo va el usuario secundario a
+   secas. Escribir `20613509446MIUSUARIO` produce un RUC duplicado y **el mismo
+   `0103` que un usuario inexistente**, así que parece un problema de SUNAT cuando es
+   de formato.
+2. **Autenticar no es poder emitir.** `ConsultarCdr` respondía `0127` (autenticación
+   correcta) mientras la emisión devolvía `0110`. Esa asimetría entre los dos
+   endpoints es lo que señaló que faltaba el permiso de envío y no la credencial.
+3. **El `0140` despista.** *"Existe un documento igual en proceso"* es un bloqueo
+   **por documento** que SUNAT aplica ANTES de comprobar el permiso de envío.
+   Reintentar el mismo comprobante lo devuelve en bucle y parece que la
+   autenticación ya funciona. Hizo falta emitir un correlativo virgen para
+   desenmascararlo.
+
+**`ConsultarCdr` es la sonda**: autentica con las mismas credenciales que el envío
+pero no emite nada, así que se puede repetir todas las veces que haga falta mientras
+se ajusta el panel. En el ERP es el botón «Verificar» de Configuración › POI Fact.
+
+## Qué se cambió en el código
+
+Todo desplegado y verificado en producción. PRs **#4**, **#5** y **#6** mergeados;
+el **#3** quedó cerrado, absorbido por el #4.
+
+**`poi-erp`**
+
+- **`src/lib/sunat/policy.ts` (nuevo)** — módulo puro, sin dependencias, para que lo
+  importen tanto el servidor como los componentes cliente. Reúne el plazo legal,
+  `MAX_SUNAT_ATTEMPTS` (que estaba copiado a mano en un componente), los códigos de
+  credenciales con su remedio concreto por código, y los fallos sistémicos.
+- **Plazo legal de envío**: 3 días calendario para serie `F`, 7 para `B`, desde el
+  día siguiente a la emisión. Se decide por el **prefijo de la serie**, no por
+  `document_type`. La tabla que había en la UI se equivocaba en tres casos.
+  Guardarraíl en los tres caminos de reenvío y badge «Fuera de plazo».
+- **Auto-reemisión de fallos sistémicos** — el cambio que más importa para el día
+  del desbloqueo: un rechazo por credenciales del emisor **ya no consume el
+  presupuesto de reintentos del comprobante**, porque ese contador mide fallos del
+  documento y esto no lo es. `autoRetrySunat` recoge también los `rejected`
+  sistémicos, con enfriamiento de 30 min. **El primer pull del POS tras arreglar la
+  clave emite todo lo pendiente solo.**
+- **El botón «Verificar» daba verde mientras SUNAT rechazaba al emisor** — sólo
+  miraba el código HTTP. Y el arreglo traía su propio bug: la extracción del código
+  partía por el punto, y Billme usa `a:Client.0103` al emitir y `ns0:0103` al
+  consultar, así que la sonda pasaba justo el caso que venía a detectar.
+- Banner en la página de comprobantes con el remedio concreto, interruptor de
+  `emit_free_lines` en la UI (**sigue apagado**), eliminado el fallback
+  `correlative: 1` del Resumen de Bajas, y tipos de Supabase generados
+  (`npm run db:types` → `src/types/supabase.ts`, 3.945 líneas).
+
+**`kronos-fact` 1.0.4** — el POS estaba ciego ante un rechazo: el motivo llegaba del
+ERP, se escribía en su SQLite y **nunca se volvía a leer** (faltaba la columna en el
+`SELECT` de `get_invoices_by_date`). El cajero veía «Rechazado» y nada más. Y el
+botón de envío masivo hacía `catch { failed++ }`, tirando todos los motivos justo
+cuando fallan varios a la vez. Compilado, publicado y con el SHA-256 servido
+idéntico al compilado.
+
+**`poi-lector`** — el PWA **no era instalable**: el manifiesto declaraba
+`poi-logo.png` como 192×192, 512×512 y maskable, y ese fichero mide 72×60. Chrome
+exige 192 px reales. Se generaron los tres iconos de verdad.
+
+## Lo que hay que hacer, por orden
+
+1. **Corregir la Clave SOL** en el panel de Billme (punto 0). Recomendación:
+   cambiarla en SUNAT por una **alfanumérica de 8–12 caracteres, sin símbolos, sin
+   `ñ` ni tildes**, y ponerla en Billme tecleada a mano. Eso descarta a la vez las
+   dos causas que quedan: que lleve caracteres que se rompen dentro del XML de
+   WS-Security (falla por API y funciona en el portal — el síntoma exacto) y que sea
+   la del usuario principal en vez de la del secundario.
+2. **Rellenar `detraction_account`** — la cuenta del Banco de la Nación, desde
+   Configuración › POI Fact. Sin ella la primera factura con SPOT se rechaza.
+3. **Decidir qué hacer con los 7 comprobantes fuera de plazo** (S/ 9 766). Contable,
+   no técnico.
+4. **Rotar dos contraseñas** (punto 4) — estuvieron en un repositorio público.
+5. **Stock por sede** (punto 2) — la única cuya ventana se cierra sola.
+
+## Cómo emitir en cuanto la clave esté bien
+
+Los scripts quedaron escritos en el scratchpad de la sesión. Si ya no existen, lo
+que hacen es trivial de rehacer: cargar `.env.local`, llamar a `resubmitInvoice()`
+de `lib/sunat/resubmit` con el `invoice_id`, y volcar la respuesta.
+
+Comprobantes esperando: `B001-00000307` (boleta real de cliente, S/ 1.00, en plazo
+hasta el 16-ago) y `B002-00000001` (S/ 1.00, creada en esta sesión como prueba del
+corte). **Con el auto-reenvío nuevo, las dos salen solas en el primer pull del POS**
+— no hace falta ejecutar nada.
+
+---
 
 > **Ya resuelto en `notas-de-credito-y-debito.md`**: la re-emisión que cobraba dos
 > veces, la matriz única de efectos por motivo, el motivo 08, la prohibición de
@@ -65,13 +173,36 @@ Hoy queda **un solo escalón**:
 | Payload de boleta, factura, NC, ND y RA | ✅ coincide campo a campo con la doc oficial de Billme |
 | Firma del UBL | ✅ Billme devuelve el XML firmado con `DigestValue` válido |
 | Usuario SOL | ✅ existe y tiene los permisos de envío |
-| **Clave SOL** | ❌ **`0104 — La Clave ingresada es incorrecta`** |
+| **Clave SOL** | ❌ `0104` al consultar y `0102` al emitir — las dos formas de decir "la contraseña no coincide" |
 
 La cadena recorrida, con la causa de cada código, está documentada en
 `facturacion-billme.md`: `0103` (usuario inexistente) → `0110` (sin perfil de
-envío) → `0104` (clave). El diagnóstico se hace **sin emitir nada** con
+envío) → `0104`/`0102` (clave). El diagnóstico se hace **sin emitir nada** con
 `ConsultarCdr`, que autentica con las mismas credenciales; si responde `0127`, la
 autenticación pasó. En el ERP es el botón «Verificar» de Configuración › POI Fact.
+
+### Dónde vive el token, que no es donde parece
+
+`fact_config.api_token`, una columna de la base — **no es una variable de entorno**
+y no hay nada que configurar en Vercel. Se cambia desde Configuración › POI Fact sin
+volver a desplegar. Estado a 2026-08-09: 64 caracteres, `provider = bilme`,
+`is_production = true`, verificado como ambiente de producción.
+
+### Qué queda por descartar en la clave
+
+Dos causas, y una sola acción las cubre. **Cambiar la contraseña del usuario
+secundario en SUNAT por una alfanumérica de 8–12 caracteres, sin símbolos, sin `ñ`
+ni tildes**, y ponerla en Billme tecleada a mano (no pegada: un espacio final del
+portapapeles da este mismo error).
+
+1. **Caracteres que se rompen en el camino.** Billme mete la contraseña dentro de
+   una cabecera XML de WS-Security. Si lleva `&`, `<`, `>`, comillas, `ñ` o tildes y
+   el proveedor no las escapa, SUNAT recibe una cadena distinta. El síntoma es
+   exactamente el observado: **entra bien por el portal de SUNAT y falla por la
+   API**, porque el portal no pasa por ese XML.
+2. **Que sea la clave del usuario principal** en vez de la del secundario. «Clave
+   SOL» se llama igual en los dos sitios y el campo de Billme quiere la del
+   secundario.
 
 **Cuando la clave sea correcta no hay que hacer nada más**: `autoRetrySunat`
 reenvía solo los rechazos por causa sistémica, así que el primer pull del POS
@@ -419,3 +550,39 @@ generado en su cabecera.
 - **`syncPendingEntries` / `syncPendingExits` de poi-lector rompen en el primer
   ítem fallido**, así que una entrada mala bloquea todo lo que va detrás hasta el
   ciclo siguiente (30 s). No se tocó en esta sesión.
+
+---
+
+## 9. Lista de verificación del día del desbloqueo
+
+Cuando la Clave SOL esté corregida, esto es lo que hay que comprobar **en este
+orden**. Los tres primeros pasos no emiten nada.
+
+1. **Sonda de credenciales.** `ConsultarCdr` sobre un correlativo que no existe
+   (p. ej. `F001-99999999`). Tiene que devolver **`0127`** («el ticket no existe» —
+   habla del documento consultado, luego la autenticación pasó). Si devuelve
+   cualquier código de `SUNAT_AUTH_FAULTS`, la clave sigue mal y no hay que seguir.
+   En el ERP: botón «Verificar» de Configuración › POI Fact; el aviso rojo trae el
+   remedio del código concreto.
+2. **Comprobar que no hay nada caducado nuevo.** Consulta de los comprobantes en
+   `issued`/`rejected` con su plazo. Los siete de la tabla de arriba deben seguir
+   marcados «Fuera de plazo» y ninguno más.
+3. **Confirmar que el auto-reenvío los va a recoger.** `B001-00000307` y
+   `B002-00000001` tienen que salir como sistémicos, en plazo y fuera del
+   enfriamiento de 30 minutos.
+4. **Esperar un pull del POS** (cada 2 min) o forzar el reenvío. Las dos deberían
+   pasar a `accepted` **solas**. Si hay que reintentarlas a mano, el auto-reenvío
+   sistémico no está funcionando y eso es un fallo que investigar.
+5. **Verificar el CDR**, no sólo el estado: descomprimir el `cdrBase64` y confirmar
+   `ResponseCode 0`. Y que la fila tenga `hash_code`, `xml_url` y `cdr_url`
+   apuntando al bucket `sunat-documents`.
+6. **Una venta real desde el POS**, de punta a punta, comprobando que el ticket
+   impreso lleva el QR con el hash. Ojo: **el primer ticket tras cobrar no lleva
+   hash** y eso es correcto —el hash sólo existe después de que el proveedor firme, y
+   el POS es offline-first—; la reimpresión sí lo lleva.
+7. **Una NC motivo 01** sobre esa venta. Es la primera vez que se usaría la serie
+   `BC01`, así que conviene hacerla con algo de S/ 1.00 y no con una venta real
+   grande.
+
+Sólo cuando 1–6 pasen puede decirse que el sistema de facturación está operativo.
+Hasta entonces, «desplegado» y «emitiendo» son cosas distintas.

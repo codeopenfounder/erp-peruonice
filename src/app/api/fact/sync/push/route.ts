@@ -394,7 +394,19 @@ export async function POST(request: Request) {
           }
         }
 
-        const invoiceId = inv.local_id || crypto.randomUUID();
+        // El local_id es la llave de idempotencia: sin él, cada reintento del
+        // POS guardaría la venta otra vez (y su cobro y su salida de stock).
+        if (!inv.local_id) {
+          results.push({
+            local_id: inv.local_id,
+            server_id: null,
+            correlative: null,
+            success: false,
+            error: "La venta llegó sin identificador (local_id)",
+          });
+          continue;
+        }
+        const invoiceId = inv.local_id;
 
         // Líneas con cost_price (para los reportes). Se preparan ANTES de guardar
         // porque comprobante y líneas entran juntos en fn_insert_pos_invoice.

@@ -9,8 +9,10 @@ const nextConfig: NextConfig = {
           { key: "Access-Control-Allow-Origin", value: "*" },
           { key: "Access-Control-Allow-Methods", value: "GET, POST, OPTIONS" },
           {
+            // Every header POI Fact sends must be listed, or WebView2 blocks the
+            // request at preflight ("Failed to fetch"). Contract: tests/cors-contract.test.mjs
             key: "Access-Control-Allow-Headers",
-            value: "Content-Type, Authorization",
+            value: "Content-Type, Authorization, X-POI-Device-Id",
           },
         ],
       },

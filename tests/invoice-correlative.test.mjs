@@ -15,8 +15,8 @@ import { insertPosInvoice } from "../src/lib/invoice-correlative.ts";
 const OPENING = "973960e3-0000-4000-8000-000000000000";
 
 /** Cliente falso: registra el orden de las llamadas y lo que recibe la RPC. */
-function fakeClient({ openings = [], insertError = null, rpcError = null } = {}) {
-  const known = new Set(openings);
+function fakeClient({ openings = [], invoices = [], insertError = null, rpcError = null } = {}) {
+  const known = new Set([...openings, ...invoices]);
   const calls = [];
   const rpcArgs = [];
   let counter = 0;
@@ -116,6 +116,32 @@ test("si la apertura no se puede crear, no intenta guardar", async () => {
   assert.equal(result.ok, false);
   assert.match(result.error, /apertura de caja/);
   assert.ok(!db.calls.includes("rpc:fn_insert_pos_invoice"));
+});
+
+test("la misma venta subida dos veces a la vez: la segunda la da por guardada", async () => {
+  // Dos pushes con el mismo local_id pasan el chequeo de idempotencia a la vez;
+  // uno guarda y el otro choca con la PK (23505). No es un fallo de la venta.
+  const db = fakeClient({
+    openings: [OPENING],
+    invoices: ["inv-1"],
+    rpcError: { code: "23505", message: 'duplicate key value violates unique constraint "invoices_pkey"' },
+  });
+  const result = await insertPosInvoice(db, input);
+
+  assert.deepEqual(result, { ok: false, alreadySaved: true });
+  assert.deepEqual(db.calls.slice(-2), ["rpc:fn_insert_pos_invoice", "select:invoices"]);
+});
+
+test("23505 pero el comprobante no existe: es un error de verdad", async () => {
+  const db = fakeClient({
+    openings: [OPENING],
+    rpcError: { code: "23505", message: 'duplicate key value violates unique constraint "otra"' },
+  });
+  const result = await insertPosInvoice(db, input);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.alreadySaved, undefined);
+  assert.match(result.error, /otra/);
 });
 
 test("si la base rechaza el comprobante, devuelve su error", async () => {

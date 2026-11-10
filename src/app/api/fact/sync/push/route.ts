@@ -512,6 +512,18 @@ export async function POST(request: Request) {
           },
         });
 
+        if (!saved.ok && saved.alreadySaved) {
+          // Otro push con el mismo local_id lo guardó a la vez: igual que el
+          // chequeo de idempotencia de arriba, y esa petición hace el resto.
+          results.push({
+            local_id: inv.local_id,
+            server_id: invoiceId,
+            correlative: null,
+            success: true,
+          });
+          continue;
+        }
+
         if (!saved.ok) {
           console.error(`[sync-push] Comprobante ${invoiceId} no guardado:`, saved.error);
           results.push({

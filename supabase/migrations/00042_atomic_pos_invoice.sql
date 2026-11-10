@@ -51,6 +51,7 @@ SET search_path = public
 AS $$
 DECLARE
   v_series_id   uuid;
+  v_tenant_id   uuid;
   v_correlative integer;
   v_invoice     jsonb;
   v_cols        text;
@@ -61,17 +62,21 @@ BEGIN
   END IF;
 
   v_series_id := (p_invoice ->> 'series_id')::uuid;
-  IF v_series_id IS NULL THEN
-    RAISE EXCEPTION 'series_id es obligatorio' USING ERRCODE = '22023';
+  v_tenant_id := (p_invoice ->> 'tenant_id')::uuid;
+  IF v_series_id IS NULL OR v_tenant_id IS NULL THEN
+    RAISE EXCEPTION 'series_id y tenant_id son obligatorios' USING ERRCODE = '22023';
   END IF;
 
+  -- La serie tiene que ser del mismo tenant que el comprobante: un series_id
+  -- ajeno no puede mover el contador de otra empresa.
   UPDATE public.invoice_series
      SET current_correlative = current_correlative + 1
    WHERE id = v_series_id
+     AND tenant_id = v_tenant_id
   RETURNING current_correlative INTO v_correlative;
 
   IF v_correlative IS NULL THEN
-    RAISE EXCEPTION 'La serie % no existe', v_series_id USING ERRCODE = 'P0002';
+    RAISE EXCEPTION 'La serie % no existe para este tenant', v_series_id USING ERRCODE = 'P0002';
   END IF;
 
   v_invoice := p_invoice || jsonb_build_object('correlative_number', v_correlative);

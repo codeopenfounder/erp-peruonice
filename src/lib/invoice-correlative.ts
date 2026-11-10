@@ -15,7 +15,13 @@ export interface InsertPosInvoiceInput {
 
 export type InsertPosInvoiceResult =
   | { ok: true; correlative: number }
-  | { ok: false; error: string };
+  /**
+   * Otra petición guardó este mismo comprobante a la vez (dos pushes con el
+   * mismo local_id). No es un fallo: el route lo trata como su chequeo de
+   * idempotencia, y esa otra petición se encarga del resto del flujo.
+   */
+  | { ok: false; alreadySaved: true }
+  | { ok: false; error: string; alreadySaved?: undefined };
 
 const UNIQUE_VIOLATION = "23505";
 
@@ -70,6 +76,15 @@ export async function insertPosInvoice(
     p_invoice: input.invoice,
     p_items: input.items,
   });
+
+  if (error?.code === UNIQUE_VIOLATION && input.invoice.id) {
+    const { data: saved } = await adminClient
+      .from("invoices")
+      .select("id")
+      .eq("id", input.invoice.id as string)
+      .maybeSingle();
+    if (saved) return { ok: false, alreadySaved: true };
+  }
 
   if (error || data == null) {
     return { ok: false, error: error?.message || "Error guardando el comprobante" };

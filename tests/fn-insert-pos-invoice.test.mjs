@@ -17,6 +17,8 @@ const MIGRATION = new URL(
   import.meta.url,
 );
 
+const TENANT = "00000000-0000-4000-8000-0000000000aa";
+const OTHER_TENANT = "00000000-0000-4000-8000-0000000000bb";
 const SERIES = "11111111-1111-4111-8111-111111111111";
 const OPENING = "22222222-2222-4222-8222-222222222222";
 
@@ -29,11 +31,13 @@ before(async () => {
 
     CREATE TABLE public.invoice_series (
       id uuid PRIMARY KEY,
+      tenant_id uuid NOT NULL,
       current_correlative integer NOT NULL DEFAULT 0
     );
     CREATE TABLE public.cash_register_openings (id uuid PRIMARY KEY);
     CREATE TABLE public.invoices (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      tenant_id uuid NOT NULL,
       series_id uuid NOT NULL REFERENCES public.invoice_series(id),
       correlative_number integer NOT NULL,
       total numeric(12,2) NOT NULL,
@@ -65,7 +69,7 @@ beforeEach(async () => {
     DELETE FROM public.invoices;
     DELETE FROM public.cash_register_openings;
     DELETE FROM public.invoice_series;
-    INSERT INTO public.invoice_series (id, current_correlative) VALUES ('${SERIES}', 0);
+    INSERT INTO public.invoice_series (id, tenant_id, current_correlative) VALUES ('${SERIES}', '${TENANT}', 0);
     INSERT INTO public.cash_register_openings (id) VALUES ('${OPENING}');
   `);
 });
@@ -76,6 +80,7 @@ const newId = () => `33333333-3333-4333-8333-${String(++n).padStart(12, "0")}`;
 function invoice(overrides = {}) {
   return {
     id: newId(),
+    tenant_id: TENANT,
     series_id: SERIES,
     total: 3,
     opening_id: OPENING,
@@ -170,6 +175,19 @@ test("serie inexistente: error y nada guardado", async () => {
     /serie/i,
   );
   assert.equal(await count("invoices"), 0);
+});
+
+test("una serie de otro tenant no se toca", async () => {
+  await assert.rejects(insert(invoice({ tenant_id: OTHER_TENANT })), /no existe para este tenant/);
+  assert.equal(await counter(), 0);
+  assert.equal(await count("invoices"), 0);
+});
+
+test("sin tenant_id no guarda nada", async () => {
+  const inv = invoice();
+  delete inv.tenant_id;
+  await assert.rejects(insert(inv), /tenant_id/);
+  assert.equal(await counter(), 0);
 });
 
 test("la migración se puede volver a ejecutar sin error", async () => {

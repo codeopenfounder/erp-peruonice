@@ -9,7 +9,7 @@ import {
   resolveMovementBranchId,
 } from "@/lib/inventory-movement";
 import { getSunatProvider } from "@/lib/sunat/factory";
-import { reserveInvoiceCorrelative } from "@/lib/invoice-correlative";
+import { insertPosInvoice } from "@/lib/invoice-correlative";
 import {
   getNoteEffect,
   isNoteDocument,
@@ -372,36 +372,12 @@ export async function POST(request: Request) {
           }
         }
 
-        // El número fiscal es irreversible: la apertura de caja tiene que existir
-        // antes de pedirlo, o el INSERT falla por la FK y el número se pierde.
-        const reserved = await reserveInvoiceCorrelative(adminClient, {
-          tenantId: ctx.tenantId,
-          userId: ctx.userId,
-          seriesId: inv.series_id,
-          openingId: inv.opening_id,
-          cashRegisterId: inv.cash_register_id,
-        });
-
-        if (!reserved.ok) {
-          results.push({
-            local_id: inv.local_id,
-            server_id: null,
-            correlative: null,
-            success: false,
-            error: reserved.error,
-          });
-          continue;
-        }
-
-        const correlative = reserved.correlative;
-
         // ¿El comprobante re-emitido está en el servidor?
         //
         // Si no está, tampoco están su movimiento de caja ni su salida de stock,
         // así que esta re-emisión debe comportarse como una venta normal: es la
         // única forma de que el cobro y la salida se registren UNA vez. Además
-        // evita que la FK reviente el insert y se pierda un correlativo ya
-        // consumido.
+        // evita que la FK de `reissue_of_invoice_id` haga fallar el guardado.
         let reissueOf = nullIfEmpty(inv.reissue_of_invoice_id);
         if (reissueOf) {
           const { data: original } = await adminClient
@@ -418,14 +394,91 @@ export async function POST(request: Request) {
           }
         }
 
-        // Insert invoice
-        const { data: inserted, error: insertError } = await adminClient
-          .from("invoices")
-          .insert({
-            id: inv.local_id,
+        // El local_id es la llave de idempotencia: sin él, cada reintento del
+        // POS guardaría la venta otra vez (y su cobro y su salida de stock).
+        if (!inv.local_id) {
+          results.push({
+            local_id: inv.local_id,
+            server_id: null,
+            correlative: null,
+            success: false,
+            error: "La venta llegó sin identificador (local_id)",
+          });
+          continue;
+        }
+        const invoiceId = inv.local_id;
+
+        // Líneas con cost_price (para los reportes). Se preparan ANTES de guardar
+        // porque comprobante y líneas entran juntos en fn_insert_pos_invoice.
+        let itemRows: Record<string, unknown>[] = [];
+        if (inv.items.length > 0) {
+          // Batch-fetch cost_price for all referenced products and supplies
+          const productIds = [...new Set(inv.items.filter(i => i.product_id).map(i => i.product_id!))]
+          const supplyIds = [...new Set(inv.items.filter(i => i.supply_id && !i.product_id).map(i => i.supply_id!))]
+          const costMap = new Map<string, number>()
+
+          let prodCostRows: { id: string; cost_price: number | null }[] = [];
+          let supplyCostRows: { id: string; cost_price: number | null }[] = [];
+          if (productIds.length > 0) {
+            const { data: prodCosts } = await adminClient
+              .from("products")
+              .select("id, cost_price")
+              .in("id", productIds)
+            prodCostRows = prodCosts || [];
+            for (const p of prodCostRows) costMap.set(p.id, p.cost_price ?? 0)
+          }
+          if (supplyIds.length > 0) {
+            const { data: supplyCosts } = await adminClient
+              .from("supplies")
+              .select("id, cost_price")
+              .in("id", supplyIds)
+            supplyCostRows = supplyCosts || [];
+            for (const s of supplyCostRows) costMap.set(s.id, s.cost_price ?? 0)
+          }
+
+          // Validate FK references: nullify product_id/supply_id if deleted from server
+          const existingProductIds = new Set(prodCostRows.map(p => p.id));
+          const existingSupplyIds = new Set(supplyCostRows.map(s => s.id));
+
+          itemRows = inv.items.map((item) => ({
+            invoice_id: invoiceId,
+            product_id: item.product_id && existingProductIds.has(item.product_id) ? item.product_id : null,
+            description: item.description,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            unit_of_measure: item.unit_of_measure,
+            discount_percentage: item.discount_percentage,
+            discount_amount: item.discount_amount,
+            tax_type: item.tax_type,
+            igv_rate: item.igv_rate,
+            igv_amount: item.igv_amount,
+            isc_amount: item.isc_amount,
+            icbper_amount: item.icbper_amount,
+            subtotal: item.subtotal,
+            total: item.total,
+            sort_order: item.sort_order,
+            is_cortesia: item.is_cortesia || false,
+            cortesia_reason: item.cortesia_reason || null,
+            original_unit_price: item.original_unit_price || null,
+            supply_id: item.supply_id && existingSupplyIds.has(item.supply_id) ? item.supply_id : null,
+            cost_price: costMap.get(item.product_id || item.supply_id || "") ?? 0,
+          }));
+        }
+
+        // Número fiscal, comprobante y líneas en UNA transacción (migración
+        // 00042). Si algo falla, el número no se consume y el reintento del POS
+        // sale con el mismo que imprimió el ticket. Antes eran tres llamadas y
+        // cualquier fallo del INSERT quemaba el número.
+        const saved = await insertPosInvoice(adminClient, {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          openingId: inv.opening_id,
+          cashRegisterId: inv.cash_register_id,
+          items: itemRows,
+          invoice: {
+            id: invoiceId,
             tenant_id: ctx.tenantId,
             series_id: inv.series_id,
-            correlative_number: correlative,
             document_type: inv.document_type,
             customer_id: inv.customer_id,
             op_gravada: inv.op_gravada,
@@ -468,92 +521,35 @@ export async function POST(request: Request) {
               return d.toLocaleDateString("en-CA", { timeZone: "America/Lima" });
             })(),
             created_at: inv.created_at,
-          })
-          .select("id")
-          .single();
+          },
+        });
 
-        if (insertError || !inserted) {
+        if (!saved.ok && saved.alreadySaved) {
+          // Otro push con el mismo local_id lo guardó a la vez: igual que el
+          // chequeo de idempotencia de arriba, y esa petición hace el resto.
           results.push({
             local_id: inv.local_id,
-            server_id: null,
-            correlative,
-            success: false,
-            error: insertError?.message || "Error insertando comprobante",
+            server_id: invoiceId,
+            correlative: null,
+            success: true,
           });
           continue;
         }
 
-        // Insert invoice items (with cost_price for report accuracy)
-        if (inv.items.length > 0) {
-          // Batch-fetch cost_price for all referenced products and supplies
-          const productIds = [...new Set(inv.items.filter(i => i.product_id).map(i => i.product_id!))]
-          const supplyIds = [...new Set(inv.items.filter(i => i.supply_id && !i.product_id).map(i => i.supply_id!))]
-          const costMap = new Map<string, number>()
-
-          let prodCostRows: { id: string; cost_price: number | null }[] = [];
-          let supplyCostRows: { id: string; cost_price: number | null }[] = [];
-          if (productIds.length > 0) {
-            const { data: prodCosts } = await adminClient
-              .from("products")
-              .select("id, cost_price")
-              .in("id", productIds)
-            prodCostRows = prodCosts || [];
-            for (const p of prodCostRows) costMap.set(p.id, p.cost_price ?? 0)
-          }
-          if (supplyIds.length > 0) {
-            const { data: supplyCosts } = await adminClient
-              .from("supplies")
-              .select("id, cost_price")
-              .in("id", supplyIds)
-            supplyCostRows = supplyCosts || [];
-            for (const s of supplyCostRows) costMap.set(s.id, s.cost_price ?? 0)
-          }
-
-          // Validate FK references: nullify product_id/supply_id if deleted from server
-          const existingProductIds = new Set(prodCostRows.map(p => p.id));
-          const existingSupplyIds = new Set(supplyCostRows.map(s => s.id));
-
-          const itemRows = inv.items.map((item) => ({
-            invoice_id: inserted.id,
-            product_id: item.product_id && existingProductIds.has(item.product_id) ? item.product_id : null,
-            description: item.description,
-            quantity: item.quantity,
-            unit_price: item.unit_price,
-            unit_of_measure: item.unit_of_measure,
-            discount_percentage: item.discount_percentage,
-            discount_amount: item.discount_amount,
-            tax_type: item.tax_type,
-            igv_rate: item.igv_rate,
-            igv_amount: item.igv_amount,
-            isc_amount: item.isc_amount,
-            icbper_amount: item.icbper_amount,
-            subtotal: item.subtotal,
-            total: item.total,
-            sort_order: item.sort_order,
-            is_cortesia: item.is_cortesia || false,
-            cortesia_reason: item.cortesia_reason || null,
-            original_unit_price: item.original_unit_price || null,
-            supply_id: item.supply_id && existingSupplyIds.has(item.supply_id) ? item.supply_id : null,
-            cost_price: costMap.get(item.product_id || item.supply_id || "") ?? 0,
-          }));
-
-          const { error: itemsError } = await adminClient.from("invoice_items").insert(itemRows);
-          if (itemsError) {
-            console.error("[sync-push] invoice_items insert failed:", itemsError.message);
-            // Rollback: delete orphan invoice so POI Fact can retry
-            await adminClient.from("invoices").delete().eq("id", inserted.id);
-            results.push({
-              local_id: inv.local_id,
-              server_id: null,
-              correlative,
-              success: false,
-              error: `Items insert failed: ${itemsError.message}`,
-            });
-            continue;
-          }
+        if (!saved.ok) {
+          console.error(`[sync-push] Comprobante ${invoiceId} no guardado:`, saved.error);
+          results.push({
+            local_id: inv.local_id,
+            server_id: null,
+            correlative: null,
+            success: false,
+            error: saved.error,
+          });
+          continue;
         }
 
-        // La apertura ya existe: reserveInvoiceCorrelative la creó si faltaba.
+        const correlative = saved.correlative;
+        const inserted = { id: invoiceId };
 
         // Movimiento de caja del comprobante, según la matriz de efectos.
         //

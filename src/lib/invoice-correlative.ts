@@ -2,44 +2,48 @@ import type { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
-export interface ReserveCorrelativeInput {
+export interface InsertPosInvoiceInput {
   tenantId: string;
   userId: string;
-  seriesId: string;
   openingId?: string | null;
   cashRegisterId?: string | null;
+  /** Columnas de `invoices`, sin `correlative_number`: lo asigna la base. */
+  invoice: Record<string, unknown>;
+  /** Filas de `invoice_items`, cada una con su `invoice_id`. */
+  items: Record<string, unknown>[];
 }
 
-export type ReserveCorrelativeResult =
+export type InsertPosInvoiceResult =
   | { ok: true; correlative: number }
-  | { ok: false; error: string };
+  /**
+   * Otra petición guardó este mismo comprobante a la vez (dos pushes con el
+   * mismo local_id). No es un fallo: el route lo trata como su chequeo de
+   * idempotencia, y esa otra petición se encarga del resto del flujo.
+   */
+  | { ok: false; alreadySaved: true }
+  | { ok: false; error: string; alreadySaved?: undefined };
 
 const UNIQUE_VIOLATION = "23505";
 
 /**
- * Toma el número fiscal de un comprobante que llega del POS.
+ * Guarda un comprobante que llega del POS y le asigna su número fiscal.
  *
- * `fn_next_correlative()` es irreversible: el UPDATE del contador queda hecho
- * aunque el INSERT del comprobante falle después, y ese número se pierde. El POS
- * imprime el ticket con el número que calculó en local, así que cada número
- * perdido es un ticket que no coincide con el comprobante ante SUNAT y obliga a
- * reimprimir.
+ * El número sale de un contador por serie y el POS imprime el ticket con el que
+ * calculó en local, así que un número perdido es un ticket que no coincide con el
+ * comprobante ante SUNAT. Hasta la migración 00042 el número se pedía en una
+ * llamada y el comprobante se guardaba en otras: si el INSERT fallaba, el número
+ * ya estaba consumido. Ahora `fn_insert_pos_invoice` hace las dos cosas en una
+ * transacción y, si algo falla, el contador vuelve atrás.
  *
- * Por eso, lo que pueda hacer fallar el INSERT se resuelve ANTES de pedir el
- * número. El caso real (2026-11-09): `invoices.opening_id` es FK a
- * `cash_register_openings`, y una apertura recién hecha en el POS sólo llega al
- * servidor con el heartbeat (cada 2 min). La primera venta tras abrir caja
- * fallaba por la FK, consumía un número, el POS reintentaba 30 s después y la
- * venta salía con el siguiente: el ticket decía 00000001 y SUNAT recibía el
- * 00000002.
- *
- * Si la apertura no se puede crear, no se pide el número: el INSERT fallaría
- * igual y el POS lo reintentará en el siguiente push sin haber quemado ninguno.
+ * La apertura de caja se asegura antes, fuera de esa transacción: es idempotente
+ * y no consume números. Hace falta porque `invoices.opening_id` es FK y una
+ * apertura recién hecha en el POS sólo llega al servidor con el heartbeat (cada
+ * 2 min); sin ella, la primera venta tras abrir caja fallaría en cada reintento.
  */
-export async function reserveInvoiceCorrelative(
+export async function insertPosInvoice(
   adminClient: AdminClient,
-  input: ReserveCorrelativeInput,
-): Promise<ReserveCorrelativeResult> {
+  input: InsertPosInvoiceInput,
+): Promise<InsertPosInvoiceResult> {
   if (input.openingId) {
     const { data: existing } = await adminClient
       .from("cash_register_openings")
@@ -68,12 +72,22 @@ export async function reserveInvoiceCorrelative(
     }
   }
 
-  const { data, error } = await adminClient.rpc("fn_next_correlative", {
-    p_series_id: input.seriesId,
+  const { data, error } = await adminClient.rpc("fn_insert_pos_invoice", {
+    p_invoice: input.invoice,
+    p_items: input.items,
   });
 
+  if (error?.code === UNIQUE_VIOLATION && input.invoice.id) {
+    const { data: saved } = await adminClient
+      .from("invoices")
+      .select("id")
+      .eq("id", input.invoice.id as string)
+      .maybeSingle();
+    if (saved) return { ok: false, alreadySaved: true };
+  }
+
   if (error || data == null) {
-    return { ok: false, error: error?.message || "Error obteniendo correlativo" };
+    return { ok: false, error: error?.message || "Error guardando el comprobante" };
   }
 
   return { ok: true, correlative: data as number };

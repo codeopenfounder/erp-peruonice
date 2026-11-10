@@ -3583,6 +3583,10 @@ export type Database = {
           tx_count: number
         }[]
       }
+      fn_insert_pos_invoice: {
+        Args: { p_invoice: Json; p_items?: Json }
+        Returns: number
+      }
       fn_lookup_reservation: {
         Args: { p_access_code: string; p_tenant_id: string }
         Returns: Json

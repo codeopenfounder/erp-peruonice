@@ -9,6 +9,7 @@ import {
   resolveMovementBranchId,
 } from "@/lib/inventory-movement";
 import { getSunatProvider } from "@/lib/sunat/factory";
+import { reserveInvoiceCorrelative } from "@/lib/invoice-correlative";
 import {
   getNoteEffect,
   isNoteDocument,
@@ -371,24 +372,28 @@ export async function POST(request: Request) {
           }
         }
 
-        // Get next correlative atomically
-        const { data: corrData, error: corrError } = await adminClient.rpc(
-          "fn_next_correlative",
-          { p_series_id: inv.series_id },
-        );
+        // El número fiscal es irreversible: la apertura de caja tiene que existir
+        // antes de pedirlo, o el INSERT falla por la FK y el número se pierde.
+        const reserved = await reserveInvoiceCorrelative(adminClient, {
+          tenantId: ctx.tenantId,
+          userId: ctx.userId,
+          seriesId: inv.series_id,
+          openingId: inv.opening_id,
+          cashRegisterId: inv.cash_register_id,
+        });
 
-        if (corrError || corrData == null) {
+        if (!reserved.ok) {
           results.push({
             local_id: inv.local_id,
             server_id: null,
             correlative: null,
             success: false,
-            error: corrError?.message || "Error obteniendo correlativo",
+            error: reserved.error,
           });
           continue;
         }
 
-        const correlative = corrData as number;
+        const correlative = reserved.correlative;
 
         // ¿El comprobante re-emitido está en el servidor?
         //
@@ -548,27 +553,7 @@ export async function POST(request: Request) {
           }
         }
 
-        // Ensure opening exists before creating cash movement
-        if (inv.opening_id) {
-          const { data: openingExists } = await adminClient
-            .from("cash_register_openings")
-            .select("id")
-            .eq("id", inv.opening_id)
-            .maybeSingle();
-
-          if (!openingExists) {
-            try {
-              await adminClient.from("cash_register_openings").insert({
-                id: inv.opening_id,
-                tenant_id: ctx.tenantId,
-                cash_register_id: inv.cash_register_id || null,
-                opened_by: ctx.userId,
-                opening_amount: 0,
-                status: "open",
-              });
-            } catch { /* opening may have been created by another concurrent request */ }
-          }
-        }
+        // La apertura ya existe: reserveInvoiceCorrelative la creó si faltaba.
 
         // Movimiento de caja del comprobante, según la matriz de efectos.
         //

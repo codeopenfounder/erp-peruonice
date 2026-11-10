@@ -1495,12 +1495,12 @@ export default function PoiFactPage() {
                 .exe publicado era anterior a los cambios de multi-POS, así que el
                 device_id y el arreglo del stock decimal no estaban en él. */}
             <a
-              href="/downloads/POI-Fact-Setup-v1.0.4.exe"
+              href="/downloads/POI-Fact-Setup-v1.0.5.exe"
               download="POI-Fact-Setup.exe"
               className="flex w-full items-center justify-center gap-2 rounded-md bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
             >
               <Download className="size-4" />
-              Descargar Instalador v1.0.4
+              Descargar Instalador v1.0.5
             </a>
           </div>
           <DialogFooter>

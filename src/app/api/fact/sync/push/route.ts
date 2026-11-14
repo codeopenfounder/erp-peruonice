@@ -10,6 +10,7 @@ import {
 } from "@/lib/inventory-movement";
 import { getSunatProvider } from "@/lib/sunat/factory";
 import { insertPosInvoice } from "@/lib/invoice-correlative";
+import { syncPosCustomers, type PosCustomer } from "@/lib/customer-sync";
 import {
   getNoteEffect,
   isNoteDocument,
@@ -196,26 +197,20 @@ export async function POST(request: Request) {
 
     const adminClient = createAdminClient();
 
-    // Upsert customers from poi-fact
-    const customerResults: { id: string; success: boolean }[] = [];
-    for (const cust of (body.customers || []) as Array<{id: string; document_type: string; document_number: string; legal_name: string; trade_name?: string; address?: string; ubigeo?: string; email?: string; phone?: string; is_active?: boolean}>) {
-      try {
-        await adminClient.from("customers").upsert({
-          id: cust.id,
-          tenant_id: ctx.tenantId,
-          document_type: cust.document_type,
-          document_number: cust.document_number,
-          legal_name: cust.legal_name,
-          trade_name: cust.trade_name || null,
-          address: cust.address || null,
-          ubigeo: cust.ubigeo || null,
-          email: cust.email || null,
-          phone: cust.phone || null,
-          is_active: cust.is_active ?? true,
-        }, { onConflict: "id" });
-        customerResults.push({ id: cust.id, success: true });
-      } catch {
-        customerResults.push({ id: cust.id, success: false });
+    // Clientes del POS. Van antes que los comprobantes y las reservas porque
+    // éstos los referencian por FK; un cliente creado en la caja con un
+    // documento que ya existía se enlaza al del servidor (lib/customer-sync).
+    const { results: customerResults, resolveId: resolveCustomerId } = await syncPosCustomers(
+      adminClient,
+      ctx.tenantId,
+      (body.customers || []) as PosCustomer[],
+    );
+    for (const inv of invoices) {
+      inv.customer_id = resolveCustomerId(inv.customer_id);
+    }
+    for (const res of reservations as Record<string, unknown>[]) {
+      if (typeof res.customer_id === "string") {
+        res.customer_id = resolveCustomerId(res.customer_id);
       }
     }
 

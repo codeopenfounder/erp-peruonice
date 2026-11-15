@@ -20,6 +20,7 @@ import type {
 import { notifyModuleAction } from "@/actions/notifications";
 import { requirePermission } from "@/lib/auth/check-permission";
 import { verifyProviderToken } from "@/lib/sunat/verify";
+import { pickRegisterSeries, registerNumber, type SeriesPick } from "@/lib/register-series";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,26 +40,6 @@ async function getTenantId() {
   if (!profile?.tenant_id) throw new Error("Sin tenant asignado");
 
   return { supabase, tenantId: profile.tenant_id, userId: user.id };
-}
-
-/**
- * Códigos de serie que le corresponden a una caja por su código.
- * CAJA-02 -> { boleta: "B002", factura: "F002" }.
- *
- * El primer carácter no es decorativo: el Anexo N.° 3 de la RS 097-2012 (sust.
- * por la RS 114-2019) exige "F" para facturas y "B" para boletas, y SUNAT
- * rechaza con 2345 si no coincide.
- *
- * Devuelve null cuando el código de la caja no encaja con 'CAJA-NN': antes que
- * inventar un código ambiguo, se prefiere dejar la caja sin serie propia y que
- * quien la administre la cree a mano.
- */
-function seriesCodesForRegister(registerCode: string): { boleta: string; factura: string } | null {
-  const match = registerCode.match(/^CAJA-(\d+)$/);
-  if (!match) return null;
-  const suffix = match[1].padStart(3, "0");
-  if (suffix.length !== 3) return null;
-  return { boleta: `B${suffix}`, factura: `F${suffix}` };
 }
 
 const SERIES_DOCUMENT_LABELS: Record<string, string> = {
@@ -459,34 +440,44 @@ export async function createCashRegister(input: unknown) {
   // propia sigue siendo utilizable (cae al fallback, que es el comportamiento de
   // siempre), mientras que abortar dejaría al usuario sin poder crear cajas por
   // un choque de nombres de serie. Se avisa y se sigue.
+  //
+  // Las series se eligen con `pickRegisterSeries` (lib/register-series.ts):
+  // la primera libre desde el número de la caja, reutilizando las que dejaron
+  // cajas borradas y saltando las retiradas (B001/F001, usadas por Symple).
   let seriesWarning: string | undefined;
-  const codes = seriesCodesForRegister(register!.code);
-  if (!codes) {
+  let assigned: { boleta: string; factura: string } | undefined;
+  const startNumber = registerNumber(register!.code);
+  if (startNumber === null) {
     seriesWarning = `No se pudieron derivar series automáticas del código "${register!.code}". Créelas manualmente en la pestaña Series.`;
   } else {
-    const { error: seriesError } = await supabase.from("invoice_series").insert([
-      {
-        tenant_id: tenantId,
-        series_code: codes.boleta,
-        document_type: "boleta",
-        current_correlative: 0,
-        branch_id: parsed.data.branch_id || null,
-        cash_register_id: register!.id,
-        is_active: true,
-      },
-      {
-        tenant_id: tenantId,
-        series_code: codes.factura,
-        document_type: "factura",
-        current_correlative: 0,
-        branch_id: parsed.data.branch_id || null,
-        cash_register_id: register!.id,
-        is_active: true,
-      },
-    ]);
+    const { data: existing, error: existingError } = await supabase
+      .from("invoice_series")
+      .select("id, series_code, document_type, cash_register_id, is_active")
+      .eq("tenant_id", tenantId);
 
-    if (seriesError) {
-      seriesWarning = `La caja se creó, pero no se pudieron crear sus series ${codes.boleta}/${codes.factura}: ${seriesError.message}. Créelas en la pestaña Series antes de usarla.`;
+    const boleta = existing ? pickRegisterSeries("boleta", startNumber, existing) : null;
+    const factura = existing ? pickRegisterSeries("factura", startNumber, existing) : null;
+
+    if (existingError || !boleta || !factura) {
+      seriesWarning = `La caja se creó, pero no se encontraron series libres para ella${existingError ? `: ${existingError.message}` : ""}. Créelas en la pestaña Series antes de usarla.`;
+    } else {
+      const results = await Promise.all(
+        ([["boleta", boleta], ["factura", factura]] as const).map(([documentType, pick]) =>
+          assignRegisterSeries(supabase, {
+            tenantId,
+            registerId: register!.id,
+            branchId: parsed.data.branch_id || null,
+            documentType,
+            pick,
+          }),
+        ),
+      );
+      const failed = results.find((r) => r.error);
+      if (failed) {
+        seriesWarning = `La caja se creó, pero no se pudieron asignar sus series ${boleta.code}/${factura.code}: ${failed.error}. Revíselas en la pestaña Series antes de usarla.`;
+      } else {
+        assigned = { boleta: boleta.code, factura: factura.code };
+      }
     }
   }
 
@@ -495,16 +486,56 @@ export async function createCashRegister(input: unknown) {
     actorId: userId,
     moduleCodes: ["config.poi_fact"],
     title: "Nueva caja registradora",
-    message: seriesWarning
-      ? `Caja "${parsed.data.name}" creada SIN series propias`
-      : `Caja "${parsed.data.name}" creada con sus series ${codes!.boleta} y ${codes!.factura}`,
+    message: assigned
+      ? `Caja "${parsed.data.name}" creada con sus series ${assigned.boleta} y ${assigned.factura}`
+      : `Caja "${parsed.data.name}" creada SIN series propias`,
     resourceType: "cash_register",
     resourceId: register!.id,
     type: seriesWarning ? "warning" : "info",
   });
 
   revalidatePath("/config/poi-fact");
-  return { success: true as const, warning: seriesWarning };
+  return { success: true as const, warning: seriesWarning, series: assigned };
+}
+
+/**
+ * Da a una caja nueva la serie elegida: la crea, o se queda con una existente
+ * sin caja. El `is("cash_register_id", null)` evita quitársela a otra caja si
+ * alguien la asignó entre la lectura y esta escritura.
+ */
+async function assignRegisterSeries(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  args: {
+    tenantId: string;
+    registerId: string;
+    branchId: string | null;
+    documentType: "boleta" | "factura";
+    pick: SeriesPick;
+  },
+): Promise<{ error?: string }> {
+  if (args.pick.action === "create") {
+    const { error } = await supabase.from("invoice_series").insert({
+      tenant_id: args.tenantId,
+      series_code: args.pick.code,
+      document_type: args.documentType,
+      current_correlative: 0,
+      branch_id: args.branchId,
+      cash_register_id: args.registerId,
+      is_active: true,
+    });
+    return { error: error?.message };
+  }
+
+  const { data, error } = await supabase
+    .from("invoice_series")
+    .update({ cash_register_id: args.registerId, branch_id: args.branchId })
+    .eq("id", args.pick.id)
+    .eq("tenant_id", args.tenantId)
+    .is("cash_register_id", null)
+    .select("id");
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: `la serie ${args.pick.code} acaba de asignarse a otra caja` };
+  return {};
 }
 
 export async function updateCashRegister(id: string, input: unknown) {

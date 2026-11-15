@@ -497,6 +497,8 @@ function CreateCashRegisterDialog({
         // igual existe, pero emitiría sobre la serie de otra: hay que verlo.
         if ("warning" in result && result.warning) {
           toast.warning(result.warning, { duration: 12000 });
+        } else if ("series" in result && result.series) {
+          toast.success(`Caja creada con sus series ${result.series.boleta} y ${result.series.factura}`);
         } else {
           toast.success("Caja creada con sus series de boleta y factura");
         }
